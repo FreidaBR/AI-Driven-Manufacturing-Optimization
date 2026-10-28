@@ -1,0 +1,101 @@
+machineID,model,alert_episodes,highest_episode_probability,average_episode_duration,total_alert_hours,last_alert_datetime,last_alert_probability,matched_failures,priority,recommended_action,priority_order,rank
+56,model1,4,0.9999923156391852,18.25,73.0,2015-12-25 05:00:00,0.9999645741896606,3,CRITICAL,Immediate inspection; investigate machine condition,0,1
+51,model4,3,0.9999958535303232,16.333333333333332,49.0,2015-12-12 05:00:00,0.9999922849576461,2,CRITICAL,Immediate inspection; investigate machine condition,0,2
+49,model1,3,0.9999938377875596,24.0,72.0,2015-12-26 05:00:00,0.9999451859829172,3,CRITICAL,Immediate inspection; investigate machine condition,0,3
+37,model1,3,0.9999731016582186,23.333333333333332,70.0,2015-12-15 05:00:00,0.9999332053631573,3,CRITICAL,Immediate inspection; investigate machine condition,0,4
+85,model1,3,0.9999837965646563,23.666666666666668,71.0,2015-12-26 05:00:00,0.999916979819646,3,CRITICAL,Immediate inspection; investigate machine condition,0,5
+73,model2,3,0.9999048344581162,14.0,42.0,2015-11-28 05:00:00,0.9999048344581162,2,CRITICAL,Immediate inspection; investigate machine condition,0,6
+20,model2,3,0.9999845483519377,23.666666666666668,71.0,2015-12-30 05:00:00,0.9998625302055812,3,CRITICAL,Immediate inspection; investigate machine condition,0,7
+21,model2,3,0.9999934711480786,23.666666666666668,71.0,2015-12-19 05:00:00,0.9997522383273661,3,CRITICAL,Immediate inspection; investigate machine condition,0,8
+15,model3,3,0.9999886532342719,14.333333333333334,43.0,2015-12-31 05:00:00,0.9997471223633072,3,CRITICAL,Immediate inspection; investigate machine condition,0,9
+76,model2,3,0.9998312734007672,7.0,21.0,2015-11-29 05:00:00,0.9991615523048818,1,CRITICAL,Immediate inspection; investigate machine condition,0,10
+90,model2,3,0.9999908994731775,16.666666666666668,50.0,2015-12-31 02:00:00,0.9989911147642638,3,CRITICAL,Immediate inspection; investigate machine condition,0,11
+43,model3,3,0.9999938787131274,16.333333333333332,49.0,2015-12-16 06:00:00,0.997967966867983,2,CRITICAL,Immediate inspection; investigate machine condition,0,12
+88,model4,3,0.9999880093035791,15.666666666666666,47.0,2015-12-30 05:00:00,0.9967748317873695,3,CRITICAL,Immediate inspection; investigate machine condition,0,13
+19,model3,3,0.9999037742109701,16.0,48.0,2015-12-23 15:00:00,0.9957452484390913,2,CRITICAL,Immediate inspection; investigate machine condition,0,14
+24,model1,3,0.9999891963925053,16.333333333333332,49.0,2015-12-12 06:00:00,0.9939134129118393,2,CRITICAL,Immediate inspection; investigate machine condition,0,15
+62,model4,2,0.9999964740749975,24.0,48.0,2015-12-24 05:00:00,0.9999964740749975,2,HIGH,Schedule preventive maintenance within 24 hours,1,16
+80,model3,2,0.9999952258992383,23.5,47.0,2015-12-09 05:00:00,0.9999905196047254,2,HIGH,Schedule preventive maintenance within 24 hours,1,17
+68,model3,2,0.9999924076334453,24.0,48.0,2015-12-13 05:00:00,0.9999902021305669,2,HIGH,Schedule preventive maintenance within 24 hours,1,18
+78,model4,2,0.9999939200607523,24.0,48.0,2015-12-17 05:00:00,0.9999885085646765,2,HIGH,Schedule preventive maintenance within 24 hours,1,19
+94,model2,2,0.9999969945965871,24.0,48.0,2015-12-19 05:00:00,0.9999884906704447,3,HIGH,Schedule preventive maintenance within 24 hours,1,20
+22,model1,2,0.9999784774412507,23.5,47.0,2015-11-18 05:00:00,0.9999784774412507,2,HIGH,Schedule preventive maintenance within 24 hours,1,21
+13,model1,2,0.9999907121299548,24.0,48.0,2015-12-22 05:00:00,0.9999738664245609,3,HIGH,Schedule preventive maintenance within 24 hours,1,22
+26,model3,2,0.9999960666241693,24.0,48.0,2015-11-17 05:00:00,0.9999733497614826,2,HIGH,Schedule preventive maintenance within 24 hours,1,23
+83,model4,2,0.9999904479072547,23.0,46.0,2015-12-27 05:00:00,0.9999730699676538,3,HIGH,Schedule preventive maintenance within 24 hours,1,24
+47,model2,2,0.9999859968646524,23.5,47.0,2015-12-20 05:00:00,0.9999722351562719,2,HIGH,Schedule preventive maintenance within 24 hours,1,25
+46,model4,2,0.9999880265353558,12.5,25.0,2015-11-19 05:00:00,0.9999681875567532,1,HIGH,Schedule preventive maintenance within 24 hours,1,26
+42,model1,2,0.9999932955296993,24.0,48.0,2015-12-17 05:00:00,0.9999561356669513,2,HIGH,Schedule preventive maintenance within 24 hours,1,27
+9,model4,2,0.9999728117370206,23.5,47.0,2015-12-14 05:00:00,0.9999437080105049,2,HIGH,Schedule preventive maintenance within 24 hours,1,28
+99,model1,2,0.999972810385852,24.0,48.0,2015-12-14 05:00:00,0.9999325574221242,2,HIGH,Schedule preventive maintenance within 24 hours,1,29
+55,model3,2,0.9999747199280137,13.0,26.0,2015-12-02 05:00:00,0.9999320862112705,1,HIGH,Schedule preventive maintenance within 24 hours,1,30
+66,model4,2,0.9999462465306816,12.5,25.0,2015-12-15 05:00:00,0.9999274273806542,1,HIGH,Schedule preventive maintenance within 24 hours,1,31
+40,model2,2,0.9999565806742576,24.0,48.0,2015-12-15 05:00:00,0.9999028655582735,2,HIGH,Schedule preventive maintenance within 24 hours,1,32
+23,model1,2,0.9999823524442211,24.0,48.0,2015-12-16 05:00:00,0.9998925812929775,2,HIGH,Schedule preventive maintenance within 24 hours,1,33
+17,model1,2,0.9999950403502674,23.5,47.0,2015-12-27 05:00:00,0.9998767528496707,2,HIGH,Schedule preventive maintenance within 24 hours,1,34
+53,model3,2,0.999991968978121,23.5,47.0,2015-12-09 05:00:00,0.9998142315381887,2,HIGH,Schedule preventive maintenance within 24 hours,1,35
+87,model2,2,0.9999641901052582,19.5,39.0,2015-12-23 05:00:00,0.9997338564449393,1,HIGH,Schedule preventive maintenance within 24 hours,1,36
+70,model3,2,0.9999908433655849,24.0,48.0,2015-12-09 05:00:00,0.9990672638787983,2,HIGH,Schedule preventive maintenance within 24 hours,1,37
+28,model4,2,0.9965443628135897,12.5,25.0,2015-12-27 05:00:00,0.9959380325885159,1,HIGH,Schedule preventive maintenance within 24 hours,1,38
+86,model3,2,0.9999903479680448,12.5,25.0,2015-12-03 06:00:00,0.986915632242106,1,HIGH,Schedule preventive maintenance within 24 hours,1,39
+16,model1,2,0.9999959386750658,12.5,25.0,2015-12-12 06:00:00,0.9836275772096863,1,HIGH,Schedule preventive maintenance within 24 hours,1,40
+89,model3,1,0.9999963520493804,24.0,24.0,2015-11-19 05:00:00,0.9999930780381758,1,MEDIUM,Inspect during the next planned maintenance window,2,41
+58,model1,1,0.9999938277930263,24.0,24.0,2015-12-12 05:00:00,0.9999900588519659,1,MEDIUM,Inspect during the next planned maintenance window,2,42
+48,model4,1,0.9999941293690912,24.0,24.0,2015-11-07 05:00:00,0.9999884452007464,1,MEDIUM,Inspect during the next planned maintenance window,2,43
+3,model3,1,0.9999912274339943,24.0,24.0,2015-12-03 05:00:00,0.9999873322021513,1,MEDIUM,Inspect during the next planned maintenance window,2,44
+2,model4,1,0.9999935824150598,24.0,24.0,2015-12-29 05:00:00,0.9999840362201966,1,MEDIUM,Inspect during the next planned maintenance window,2,45
+63,model4,1,0.999989324827094,24.0,24.0,2015-11-09 05:00:00,0.9999824266540512,1,MEDIUM,Inspect during the next planned maintenance window,2,46
+81,model4,1,0.9999907940901607,24.0,24.0,2015-12-13 05:00:00,0.9999789102423254,1,MEDIUM,Inspect during the next planned maintenance window,2,47
+61,model4,1,0.9999860594611903,23.0,23.0,2015-11-24 05:00:00,0.9999777751987605,1,MEDIUM,Inspect during the next planned maintenance window,2,48
+31,model1,1,0.9999798397907829,23.0,23.0,2015-11-18 05:00:00,0.999976538768216,2,MEDIUM,Inspect during the next planned maintenance window,2,49
+29,model4,1,0.9999929733729358,24.0,24.0,2015-11-28 05:00:00,0.9999710502087023,1,MEDIUM,Inspect during the next planned maintenance window,2,50
+100,model4,1,0.9999823654463142,23.0,23.0,2015-12-09 05:00:00,0.999962834267609,1,MEDIUM,Inspect during the next planned maintenance window,2,51
+1,model3,1,0.9999801985059446,24.0,24.0,2015-12-16 05:00:00,0.9999581472683946,1,MEDIUM,Inspect during the next planned maintenance window,2,52
+96,model2,1,0.9999747322116137,24.0,24.0,2015-12-29 05:00:00,0.9999491249637964,1,MEDIUM,Inspect during the next planned maintenance window,2,53
+34,model4,1,0.9999690785435869,24.0,24.0,2015-11-12 05:00:00,0.999948909677227,1,MEDIUM,Inspect during the next planned maintenance window,2,54
+98,model2,1,0.9999722147894229,24.0,24.0,2015-11-26 05:00:00,0.9999410060844436,1,MEDIUM,Inspect during the next planned maintenance window,2,55
+30,model3,1,0.9999849486519804,24.0,24.0,2015-12-05 05:00:00,0.9999397788729066,1,MEDIUM,Inspect during the next planned maintenance window,2,56
+79,model3,1,0.9999666083439823,24.0,24.0,2015-12-13 05:00:00,0.9999372009021995,1,MEDIUM,Inspect during the next planned maintenance window,2,57
+7,model3,1,0.9999642668439798,24.0,24.0,2015-12-20 05:00:00,0.9999337174013241,1,MEDIUM,Inspect during the next planned maintenance window,2,58
+69,model2,1,0.9999660259193557,6.0,6.0,2015-11-01 05:00:00,0.9999312231162898,1,MEDIUM,Inspect during the next planned maintenance window,2,59
+95,model2,1,0.9999246073747742,23.0,23.0,2015-12-31 05:00:00,0.9999246073747742,1,MEDIUM,Inspect during the next planned maintenance window,2,60
+97,model2,1,0.9999640884751548,24.0,24.0,2015-11-20 05:00:00,0.9999047667664154,1,MEDIUM,Inspect during the next planned maintenance window,2,61
+54,model2,1,0.9999828148627701,23.0,23.0,2015-12-26 05:00:00,0.9999002673934309,1,MEDIUM,Inspect during the next planned maintenance window,2,62
+92,model1,1,0.9999888621159732,24.0,24.0,2015-12-01 05:00:00,0.999884329425279,1,MEDIUM,Inspect during the next planned maintenance window,2,63
+39,model4,1,0.9999614612241458,24.0,24.0,2015-12-27 05:00:00,0.9998776361209849,1,MEDIUM,Inspect during the next planned maintenance window,2,64
+33,model3,1,0.9999307372297399,24.0,24.0,2015-11-27 05:00:00,0.9998676569516023,1,MEDIUM,Inspect during the next planned maintenance window,2,65
+82,model3,1,0.9999916382385701,24.0,24.0,2015-12-09 05:00:00,0.9998665608141221,1,MEDIUM,Inspect during the next planned maintenance window,2,66
+45,model3,1,0.9999462106202199,24.0,24.0,2015-11-03 05:00:00,0.9998664086912945,1,MEDIUM,Inspect during the next planned maintenance window,2,67
+38,model4,1,0.9999051860600894,23.0,23.0,2015-12-13 05:00:00,0.9998254615269929,2,MEDIUM,Inspect during the next planned maintenance window,2,68
+11,model2,1,0.9999102108646801,23.0,23.0,2015-12-16 05:00:00,0.9998174240273336,1,MEDIUM,Inspect during the next planned maintenance window,2,69
+57,model4,1,0.9999452388153605,24.0,24.0,2015-11-04 05:00:00,0.9998025148846681,1,MEDIUM,Inspect during the next planned maintenance window,2,70
+52,model3,1,0.9999469803130233,23.0,23.0,2015-12-30 05:00:00,0.9997882346653674,1,MEDIUM,Inspect during the next planned maintenance window,2,71
+64,model3,1,0.9997675197900316,23.0,23.0,2015-12-31 05:00:00,0.9996094608997426,1,MEDIUM,Inspect during the next planned maintenance window,2,72
+5,model3,1,0.9998823477454948,24.0,24.0,2015-11-20 05:00:00,0.9992080151782149,1,MEDIUM,Inspect during the next planned maintenance window,2,73
+72,model4,1,0.9992395323201105,13.0,13.0,2015-11-18 18:00:00,0.999207570241864,0,MEDIUM,Inspect during the next planned maintenance window,2,74
+25,model4,1,0.9998201099277745,23.0,23.0,2015-11-30 05:00:00,0.9991112071781597,1,MEDIUM,Inspect during the next planned maintenance window,2,75
+32,model4,1,0.9981797137521562,23.0,23.0,2015-11-06 05:00:00,0.9953696611799465,1,MEDIUM,Inspect during the next planned maintenance window,2,76
+93,model3,1,0.9942707461310407,1.0,1.0,2015-11-26 06:00:00,0.9942707461310407,0,MEDIUM,Inspect during the next planned maintenance window,2,77
+35,model1,1,0.9922964541468307,1.0,1.0,2015-11-16 06:00:00,0.9922964541468307,0,MEDIUM,Inspect during the next planned maintenance window,2,78
+67,model4,1,0.9899251468566499,1.0,1.0,2015-12-11 06:00:00,0.9899251468566499,0,MEDIUM,Inspect during the next planned maintenance window,2,79
+4,model3,0,0.0,0.0,0.0,,0.0,0,LOW,Continue routine monitoring,3,80
+6,model3,0,0.0,0.0,0.0,,0.0,0,LOW,Continue routine monitoring,3,81
+8,model3,0,0.0,0.0,0.0,,0.0,0,LOW,Continue routine monitoring,3,82
+10,model3,0,0.0,0.0,0.0,,0.0,0,LOW,Continue routine monitoring,3,83
+12,model3,0,0.0,0.0,0.0,,0.0,0,LOW,Continue routine monitoring,3,84
+14,model3,0,0.0,0.0,0.0,,0.0,0,LOW,Continue routine monitoring,3,85
+18,model3,0,0.0,0.0,0.0,,0.0,0,LOW,Continue routine monitoring,3,86
+27,model3,0,0.0,0.0,0.0,,0.0,0,LOW,Continue routine monitoring,3,87
+36,model4,0,0.0,0.0,0.0,,0.0,0,LOW,Continue routine monitoring,3,88
+41,model4,0,0.0,0.0,0.0,,0.0,0,LOW,Continue routine monitoring,3,89
+44,model4,0,0.0,0.0,0.0,,0.0,0,LOW,Continue routine monitoring,3,90
+50,model4,0,0.0,0.0,0.0,,0.0,0,LOW,Continue routine monitoring,3,91
+59,model3,0,0.0,0.0,0.0,,0.0,0,LOW,Continue routine monitoring,3,92
+60,model4,0,0.0,0.0,0.0,,0.0,0,LOW,Continue routine monitoring,3,93
+65,model3,0,0.0,0.0,0.0,,0.0,0,LOW,Continue routine monitoring,3,94
+71,model2,0,0.0,0.0,0.0,,0.0,0,LOW,Continue routine monitoring,3,95
+74,model4,0,0.0,0.0,0.0,,0.0,0,LOW,Continue routine monitoring,3,96
+75,model3,0,0.0,0.0,0.0,,0.0,0,LOW,Continue routine monitoring,3,97
+77,model4,0,0.0,0.0,0.0,,0.0,0,LOW,Continue routine monitoring,3,98
+84,model3,0,0.0,0.0,0.0,,0.0,0,LOW,Continue routine monitoring,3,99
+91,model4,0,0.0,0.0,0.0,,0.0,0,LOW,Continue routine monitoring,3,100

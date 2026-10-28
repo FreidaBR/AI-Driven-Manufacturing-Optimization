@@ -1,0 +1,4 @@
+machines_per_day,machines_requiring_inspection,estimated_planning_days,critical_machines,high_machines,medium_machines
+5,79,16,15,25,39
+10,79,8,15,25,39
+15,79,6,15,25,39

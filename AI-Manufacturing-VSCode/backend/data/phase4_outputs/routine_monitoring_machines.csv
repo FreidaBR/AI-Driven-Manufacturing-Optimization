@@ -1,0 +1,22 @@
+machineID,model,priority,recommended_action
+4,model3,LOW,Continue routine monitoring
+6,model3,LOW,Continue routine monitoring
+8,model3,LOW,Continue routine monitoring
+10,model3,LOW,Continue routine monitoring
+12,model3,LOW,Continue routine monitoring
+14,model3,LOW,Continue routine monitoring
+18,model3,LOW,Continue routine monitoring
+27,model3,LOW,Continue routine monitoring
+36,model4,LOW,Continue routine monitoring
+41,model4,LOW,Continue routine monitoring
+44,model4,LOW,Continue routine monitoring
+50,model4,LOW,Continue routine monitoring
+59,model3,LOW,Continue routine monitoring
+60,model4,LOW,Continue routine monitoring
+65,model3,LOW,Continue routine monitoring
+71,model2,LOW,Continue routine monitoring
+74,model4,LOW,Continue routine monitoring
+75,model3,LOW,Continue routine monitoring
+77,model4,LOW,Continue routine monitoring
+84,model3,LOW,Continue routine monitoring
+91,model4,LOW,Continue routine monitoring

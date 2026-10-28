@@ -1,0 +1,18 @@
+@"
+# Frontend dependencies
+**/node_modules/
+
+# Python environments
+**/.venv/
+**/venv/
+
+# Python cache
+**/__pycache__/
+*.pyc
+
+# Environment variables
+**/.env
+
+# Large datasets
+*.parquet
+"@ | Set-Content -Encoding UTF8 .gitignore
