@@ -10,29 +10,39 @@ from sklearn.metrics import (
     roc_auc_score
 )
 
+from app.evaluation_data import load_labeled_evaluation_data
+from app.model_utils import impute_missing_features, load_imputer_statistics
+
 BASE = Path(__file__).resolve().parent
-
-df = pd.read_parquet(
-    BASE / "data" / "cleaned_dataset" / "manufacturing_features.parquet"
+RAW_DATA_DIR = BASE / "data" / "raw" / "cleaned_dataset"
+GENERATED_FEATURES_PATH = (
+    BASE / "data" / "generated" / "manufacturing_features_local.parquet"
 )
+MODEL_DIR = BASE / "models"
 
-model = joblib.load(BASE / "models" / "lightgbm_model.joblib")
-imputer = joblib.load(BASE / "models" / "imputer.joblib")
-
-with open(BASE / "models" / "feature_columns.json") as f:
+with open(MODEL_DIR / "feature_columns.json", encoding="utf-8") as f:
     feature_columns = json.load(f)
 
-# Prepare features
-X = df[feature_columns]
-y = df["failure_next_24h"].astype(int)
-
-# Impute missing values
-X_imputed = pd.DataFrame(
-    imputer.transform(X),
-    columns=feature_columns
+model = joblib.load(MODEL_DIR / "lightgbm_model.joblib")
+imputer_statistics = load_imputer_statistics(
+    MODEL_DIR / "imputer_statistics.json",
+    feature_columns,
 )
 
+df, y = load_labeled_evaluation_data(
+    RAW_DATA_DIR,
+    MODEL_DIR / "feature_columns.json",
+    GENERATED_FEATURES_PATH,
+)
+y = pd.Series(y, index=df.index, dtype=int)
+
 # Predict in batches to limit memory usage
+X = df[feature_columns]
+X_imputed = impute_missing_features(
+    X,
+    feature_columns,
+    imputer_statistics,
+)
 batch_size = 50000
 probabilities = []
 
@@ -41,7 +51,7 @@ for start in range(0, len(X_imputed), batch_size):
     batch = X_imputed.iloc[start:end]
     probabilities.extend(model.predict_proba(batch)[:, 1])
 
-probabilities = pd.Series(probabilities)
+probabilities = pd.Series(probabilities, index=y.index)
 
 # Evaluate at threshold 0.98
 threshold = 0.98

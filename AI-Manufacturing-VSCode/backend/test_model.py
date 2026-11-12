@@ -1,45 +1,56 @@
 
 import json
 import joblib
-import pandas as pd
 from pathlib import Path
 
-BASE = Path(__file__).resolve().parent
+import pandas as pd
 
-df = pd.read_parquet(
-    BASE / "data" / "cleaned_dataset" / "manufacturing_features.parquet"
+from app.evaluation_data import load_labeled_evaluation_data
+from app.model_utils import impute_missing_features, load_imputer_statistics
+
+BASE = Path(__file__).resolve().parent
+MODEL_DIR = BASE / "models"
+RAW_DATA_DIR = BASE / "data" / "raw" / "cleaned_dataset"
+GENERATED_FEATURES_PATH = (
+    BASE / "data" / "generated" / "manufacturing_features_local.parquet"
 )
 
-model = joblib.load(BASE / "models" / "lightgbm_model.joblib")
-imputer = joblib.load(BASE / "models" / "imputer.joblib")
+with open(MODEL_DIR / "feature_columns.json", encoding="utf-8") as file:
+    feature_columns = json.load(file)
 
-with open(BASE / "models" / "feature_columns.json") as f:
-    feature_columns = json.load(f)
+model = joblib.load(MODEL_DIR / "lightgbm_model.joblib")
+imputer_statistics = load_imputer_statistics(
+    MODEL_DIR / "imputer_statistics.json",
+    feature_columns,
+)
 
-# Select normal and failure records
-normal_rows = df[df["failure_next_24h"] == 0].head(5)
-failure_rows = df[df["failure_next_24h"] == 1].head(5)
+evaluation_data, labels = load_labeled_evaluation_data(
+    RAW_DATA_DIR,
+    MODEL_DIR / "feature_columns.json",
+    GENERATED_FEATURES_PATH,
+)
+evaluation_data = evaluation_data.assign(failure_next_24h=labels)
 
+normal_rows = evaluation_data[evaluation_data["failure_next_24h"] == 0].head(5)
+failure_rows = evaluation_data[evaluation_data["failure_next_24h"] == 1].head(5)
 test_rows = pd.concat([normal_rows, failure_rows])
 
-# Prepare model features
 X = test_rows[feature_columns]
-
-X_imputed = pd.DataFrame(
-    imputer.transform(X),
-    columns=feature_columns,
-    index=X.index
+X_imputed = impute_missing_features(
+    X,
+    feature_columns,
+    imputer_statistics,
 )
-
-# Predict
 probabilities = model.predict_proba(X_imputed)[:, 1]
 
-results = pd.DataFrame({
+results = pd.DataFrame(
+    {
     "machineID": test_rows["machineID"].values,
     "datetime": test_rows["datetime"].values,
     "actual_label": test_rows["failure_next_24h"].values,
     "predicted_probability": probabilities
-})
+    }
+)
 
 results["predicted_percentage"] = (
     results["predicted_probability"] * 100

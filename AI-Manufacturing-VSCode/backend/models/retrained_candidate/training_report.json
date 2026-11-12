@@ -1,0 +1,287 @@
+{
+  "model_type": "LightGBM binary classifier",
+  "model_parameters": {
+    "objective": "binary",
+    "class_weight": "balanced",
+    "n_estimators": 400,
+    "learning_rate": 0.05,
+    "num_leaves": 31,
+    "max_depth": -1,
+    "min_child_samples": 20,
+    "colsample_bytree": 0.8,
+    "subsample": 0.8,
+    "subsample_freq": 0,
+    "reg_alpha": 0.0,
+    "reg_lambda": 0.0,
+    "random_state": 42,
+    "n_jobs": -1,
+    "verbosity": -1
+  },
+  "target": "failure recorded in the next 24 hours",
+  "split_method": "chronological with 24-hour label-window embargo",
+  "test_fraction_of_timestamps": 0.2,
+  "alert_threshold": 0.98,
+  "dataset": {
+    "eligible_rows": 873700,
+    "positive_rows": 17184,
+    "positive_rate": 0.019668078287741787,
+    "train_rows": 696500,
+    "train_positive_rows": 13935,
+    "train_start": "2015-01-01T06:00:00",
+    "train_end": "2015-10-18T10:00:00",
+    "test_rows": 174800,
+    "test_positive_rows": 3182,
+    "test_start": "2015-10-19T11:00:00",
+    "test_end": "2015-12-31T06:00:00",
+    "embargo_hours": 24,
+    "all_missing_training_features_filled_with_zero": []
+  },
+  "candidate_metrics": {
+    "average_precision": 0.9927500629397663,
+    "roc_auc": 0.9998785526468426,
+    "precision_at_threshold": 0.9761830147289251,
+    "recall_at_threshold": 0.9789440603394092,
+    "f1_at_threshold": 0.9775615879491605,
+    "brier_score": 0.0010351586986588439,
+    "confusion_matrix_labels_0_1": [
+      [
+        171542,
+        76
+      ],
+      [
+        67,
+        3115
+      ]
+    ],
+    "true_negatives": 171542,
+    "false_positives": 76,
+    "false_negatives": 67,
+    "true_positives": 3115,
+    "predicted_alerts": 3191
+  },
+  "candidate_threshold_sensitivity": {
+    "0.5": {
+      "average_precision": 0.9927500629397663,
+      "roc_auc": 0.9998785526468426,
+      "precision_at_threshold": 0.9429680501642281,
+      "recall_at_threshold": 0.9924575738529227,
+      "f1_at_threshold": 0.9670800796202725,
+      "brier_score": 0.0010351586986588439,
+      "confusion_matrix_labels_0_1": [
+        [
+          171427,
+          191
+        ],
+        [
+          24,
+          3158
+        ]
+      ],
+      "true_negatives": 171427,
+      "false_positives": 191,
+      "false_negatives": 24,
+      "true_positives": 3158,
+      "predicted_alerts": 3349
+    },
+    "0.85": {
+      "average_precision": 0.9927500629397663,
+      "roc_auc": 0.9998785526468426,
+      "precision_at_threshold": 0.9579652756625038,
+      "recall_at_threshold": 0.9883720930232558,
+      "f1_at_threshold": 0.9729311678267595,
+      "brier_score": 0.0010351586986588439,
+      "confusion_matrix_labels_0_1": [
+        [
+          171480,
+          138
+        ],
+        [
+          37,
+          3145
+        ]
+      ],
+      "true_negatives": 171480,
+      "false_positives": 138,
+      "false_negatives": 37,
+      "true_positives": 3145,
+      "predicted_alerts": 3283
+    },
+    "0.98": {
+      "average_precision": 0.9927500629397663,
+      "roc_auc": 0.9998785526468426,
+      "precision_at_threshold": 0.9761830147289251,
+      "recall_at_threshold": 0.9789440603394092,
+      "f1_at_threshold": 0.9775615879491605,
+      "brier_score": 0.0010351586986588439,
+      "confusion_matrix_labels_0_1": [
+        [
+          171542,
+          76
+        ],
+        [
+          67,
+          3115
+        ]
+      ],
+      "true_negatives": 171542,
+      "false_positives": 76,
+      "false_negatives": 67,
+      "true_positives": 3115,
+      "predicted_alerts": 3191
+    }
+  },
+  "existing_model_same_holdout_metrics": {
+    "average_precision": 0.9927500629397663,
+    "roc_auc": 0.9998785526468426,
+    "precision_at_threshold": 0.9761830147289251,
+    "recall_at_threshold": 0.9789440603394092,
+    "f1_at_threshold": 0.9775615879491605,
+    "brier_score": 0.0010351586986588432,
+    "confusion_matrix_labels_0_1": [
+      [
+        171542,
+        76
+      ],
+      [
+        67,
+        3115
+      ]
+    ],
+    "true_negatives": 171542,
+    "false_positives": 76,
+    "false_negatives": 67,
+    "true_positives": 3115,
+    "predicted_alerts": 3191
+  },
+  "sensor_only_feature_count": 28,
+  "sensor_only_feature_columns": [
+    "volt",
+    "rotate",
+    "pressure",
+    "vibration",
+    "volt_rolling_mean_3h",
+    "volt_rolling_std_3h",
+    "volt_rolling_mean_12h",
+    "volt_rolling_std_12h",
+    "volt_rolling_mean_24h",
+    "volt_rolling_std_24h",
+    "rotate_rolling_mean_3h",
+    "rotate_rolling_std_3h",
+    "rotate_rolling_mean_12h",
+    "rotate_rolling_std_12h",
+    "rotate_rolling_mean_24h",
+    "rotate_rolling_std_24h",
+    "pressure_rolling_mean_3h",
+    "pressure_rolling_std_3h",
+    "pressure_rolling_mean_12h",
+    "pressure_rolling_std_12h",
+    "pressure_rolling_mean_24h",
+    "pressure_rolling_std_24h",
+    "vibration_rolling_mean_3h",
+    "vibration_rolling_std_3h",
+    "vibration_rolling_mean_12h",
+    "vibration_rolling_std_12h",
+    "vibration_rolling_mean_24h",
+    "vibration_rolling_std_24h"
+  ],
+  "sensor_only_metrics": {
+    "average_precision": 0.25175037330928013,
+    "roc_auc": 0.964724441465782,
+    "precision_at_threshold": 0.631578947368421,
+    "recall_at_threshold": 0.01508485229415462,
+    "f1_at_threshold": 0.029465930018416207,
+    "brier_score": 0.05336945932458838,
+    "confusion_matrix_labels_0_1": [
+      [
+        171590,
+        28
+      ],
+      [
+        3134,
+        48
+      ]
+    ],
+    "true_negatives": 171590,
+    "false_positives": 28,
+    "false_negatives": 3134,
+    "true_positives": 48,
+    "predicted_alerts": 76
+  },
+  "sensor_only_threshold_sensitivity": {
+    "0.5": {
+      "average_precision": 0.25175037330928013,
+      "roc_auc": 0.964724441465782,
+      "precision_at_threshold": 0.19068778979907264,
+      "recall_at_threshold": 0.9305468258956631,
+      "f1_at_threshold": 0.31651523249599145,
+      "brier_score": 0.05336945932458838,
+      "confusion_matrix_labels_0_1": [
+        [
+          159051,
+          12567
+        ],
+        [
+          221,
+          2961
+        ]
+      ],
+      "true_negatives": 159051,
+      "false_positives": 12567,
+      "false_negatives": 221,
+      "true_positives": 2961,
+      "predicted_alerts": 15528
+    },
+    "0.85": {
+      "average_precision": 0.25175037330928013,
+      "roc_auc": 0.964724441465782,
+      "precision_at_threshold": 0.21068669060833606,
+      "recall_at_threshold": 0.6084223758642363,
+      "f1_at_threshold": 0.3129900573922884,
+      "brier_score": 0.05336945932458838,
+      "confusion_matrix_labels_0_1": [
+        [
+          164365,
+          7253
+        ],
+        [
+          1246,
+          1936
+        ]
+      ],
+      "true_negatives": 164365,
+      "false_positives": 7253,
+      "false_negatives": 1246,
+      "true_positives": 1936,
+      "predicted_alerts": 9189
+    },
+    "0.98": {
+      "average_precision": 0.25175037330928013,
+      "roc_auc": 0.964724441465782,
+      "precision_at_threshold": 0.631578947368421,
+      "recall_at_threshold": 0.01508485229415462,
+      "f1_at_threshold": 0.029465930018416207,
+      "brier_score": 0.05336945932458838,
+      "confusion_matrix_labels_0_1": [
+        [
+          171590,
+          28
+        ],
+        [
+          3134,
+          48
+        ]
+      ],
+      "true_negatives": 171590,
+      "false_positives": 28,
+      "false_negatives": 3134,
+      "true_positives": 48,
+      "predicted_alerts": 76
+    }
+  },
+  "notes": [
+    "The existing deployed artifacts were not overwritten.",
+    "The sensor-only result is a separate baseline using raw and rolling sensor features only; it is not the deployed model.",
+    "This is a retrospective benchmark on one historical dataset, not evidence of live-factory performance or reduced downtime.",
+    "Class-weighted LightGBM probabilities are not calibrated failure frequencies."
+  ]
+}

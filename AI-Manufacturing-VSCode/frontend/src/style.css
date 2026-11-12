@@ -508,7 +508,8 @@ td {
   .stat-card {
     padding: 13px;
   }
-  
+}
+
 .machine-filters {
   display: flex;
   gap: 12px;
@@ -525,6 +526,62 @@ td {
   color: #334155;
   font: inherit;
   outline: none;
+}
+
+.simulation-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+  padding: 16px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+}
+
+.simulation-copy {
+  flex: 1 1 260px;
+}
+
+.simulation-copy p {
+  margin: 5px 0 0;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.simulation-copy small {
+  display: block;
+  margin-top: 5px;
+  color: #64748b;
+  font-size: 11px;
+}
+
+.simulation-toolbar label {
+  display: grid;
+  gap: 4px;
+  color: #64748b;
+  font-size: 11px;
+}
+
+.simulation-toolbar input {
+  width: 110px;
+  padding: 8px;
+  border: 1px solid #d5dce7;
+  border-radius: 7px;
+  font: inherit;
+}
+
+.simulation-toolbar .view-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.simulation-error {
+  flex-basis: 100%;
+  margin: 0;
+  color: #b91c1c;
+  font-size: 12px;
 }
 
 .machine-filters input {
@@ -684,6 +741,36 @@ td {
   margin-top: 20px;
   font-size: 11px;
   color: #64748b;
+}
+
+.machine-detail-section {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.machine-detail-section h3 {
+  margin: 0 0 12px;
+  color: #172033;
+  font-size: 15px;
+}
+
+.machine-detail-section p {
+  margin: 8px 0;
+  color: #475569;
+  line-height: 1.5;
+}
+
+.machine-detail-section .table-wrap {
+  margin-top: 12px;
+}
+
+.machine-details-error {
+  padding: 14px;
+  color: #b91c1c;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
 }
 
 @media (max-width: 500px) {
@@ -868,4 +955,307 @@ td {
   }
 }
 
+
+/* ======================================================
+   ACTIVE ALERT BANNER & NOTIFICATION MECHANISM
+   ====================================================== */
+
+.alert-banner {
+  background: linear-gradient(90deg, #991b1b 0%, #dc2626 50%, #b91c1c 100%);
+  color: white;
+  padding: 14px 20px;
+  border-radius: 12px;
+  margin-bottom: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: 0 6px 18px rgba(220, 38, 38, 0.25);
+  animation: pulse-alert-border 2.5s infinite;
+}
+
+@keyframes pulse-alert-border {
+  0% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.4); }
+  70% { box-shadow: 0 0 0 10px rgba(220, 38, 38, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
+}
+
+.alert-banner-content {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.alert-badge {
+  background: white;
+  color: #dc2626;
+  font-weight: 800;
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 20px;
+  letter-spacing: 0.5px;
+}
+
+.alert-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.alert-btn {
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  color: white;
+  padding: 7px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.alert-btn:hover {
+  background: white;
+  color: #dc2626;
+}
+
+/* ======================================================
+   HEALTH SCORE PILL & METER
+   ====================================================== */
+
+.health-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 14px;
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.health-excellent { background: #dcfce7; color: #15803d; border: 1px solid #86efac; }
+.health-good { background: #fef9c3; color: #a16207; border: 1px solid #fde047; }
+.health-warning { background: #ffedd5; color: #c2410c; border: 1px solid #fdba74; }
+.health-critical { background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; }
+
+/* ======================================================
+   MAINTENANCE CATEGORY TAGS
+   ====================================================== */
+
+.maint-tag {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 4px 9px;
+  border-radius: 6px;
+  display: inline-block;
+}
+
+.maint-urgent { background: #fee2e2; color: #991b1b; border: 1px solid #f87171; }
+.maint-preventive { background: #ffedd5; color: #9a3412; border: 1px solid #fb923c; }
+.maint-routine { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
+
+/* ======================================================
+   FACTORY SCENARIO SELECTOR
+   ====================================================== */
+
+.scenario-selector-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.scenario-btn {
+  padding: 6px 13px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+  background: white;
+  color: #334155;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.scenario-btn:hover {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+}
+
+.scenario-btn.active {
+  background: #5278e8;
+  color: white;
+  border-color: #5278e8;
+}
+
+/* ======================================================
+   FACTORY LINES FLOOR MAP
+   ====================================================== */
+
+.factory-lines-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.factory-line-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+
+.factory-line-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.factory-line-header strong {
+  font-size: 15px;
+  color: #0f172a;
+}
+
+.machine-mini-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.machine-mini-node {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.15s;
+  color: white;
+}
+
+.machine-mini-node:hover {
+  transform: scale(1.18);
+  box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+  z-index: 2;
+}
+
+/* ======================================================
+   MODEL EXPLANATION & ROOT CAUSE BOX
+   ====================================================== */
+
+.explanation-box {
+  background: #f8fafc;
+  border-left: 4px solid #5278e8;
+  padding: 16px;
+  border-radius: 0 10px 10px 0;
+  margin-top: 16px;
+  border-top: 1px solid #e2e8f0;
+  border-right: 1px solid #e2e8f0;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.explanation-drivers-list {
+  margin: 10px 0 0 18px;
+  padding: 0;
+}
+
+.explanation-drivers-list li {
+  margin-bottom: 6px;
+  color: #334155;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+/* ======================================================
+   MAINTENANCE DISPATCH REPORT MODAL
+   ====================================================== */
+
+.report-modal {
+  max-width: 900px;
+  width: 95%;
+  max-height: 88vh;
+  overflow-y: auto;
+  background: white;
+  border-radius: 16px;
+  padding: 32px;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.25);
+}
+
+.report-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  border-bottom: 2px solid #e2e8f0;
+  padding-bottom: 16px;
+  margin-bottom: 20px;
+}
+
+.report-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.report-meta-item {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.report-meta-item span {
+  display: block;
+  font-size: 11px;
+  color: #64748b;
+  text-transform: uppercase;
+}
+
+.report-meta-item strong {
+  display: block;
+  font-size: 18px;
+  color: #0f172a;
+  margin-top: 4px;
+}
+
+.report-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 12px;
+  font-size: 12px;
+}
+
+.report-table th, .report-table td {
+  padding: 9px 12px;
+  border: 1px solid #e2e8f0;
+  text-align: left;
+}
+
+.report-table th {
+  background: #f1f5f9;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.report-print-btn {
+  background: #0f172a;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
 }

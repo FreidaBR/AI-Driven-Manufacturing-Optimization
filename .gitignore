@@ -1,0 +1,38 @@
+# Python virtual environments
+.venv/
+**/.venv/
+venv/
+**/venv/
+env/
+**/env/
+
+# Python byte-code and cache
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+
+# Node / Frontend
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+.vite/
+
+# Large temporary datasets and big archives (> 100MB)
+*.parquet
+**/*.parquet
+*.zip
+AI-Manufacturing-VSCode.zip
+dataset/
+**/dataset/
+
+# Temporary scratch verification images
+pdf_page_*.png
+**/pdf_page_*.png
+
+# Environment files
+.env
+**/.env
+.DS_Store
+Thumbs.db
