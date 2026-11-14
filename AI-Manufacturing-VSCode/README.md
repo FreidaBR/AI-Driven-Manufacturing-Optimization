@@ -1,8 +1,8 @@
 # AI-Driven Manufacturing Optimization
 
-An end-to-end intelligent predictive-maintenance solution that uses real historical manufacturing data and multi-model machine learning to estimate machine failure risk, predict Remaining Useful Life (RUL), assess failure severity, prioritize machines for inspection, and automate preventive maintenance scheduling.
+An educational predictive-maintenance prototype that uses historical benchmark data and saved machine-learning artifacts to estimate failure risk, RUL, and component class, then presents inspection-priority and capacity-limited planning proposals.
 
-> **Project status:** Production-Ready Solution. Multi-model machine learning suite (24h failure classification, RUL regression, and component failure mode severity), full physics sensor integration (temperature, vibration, pressure, runtime, error logs, downtime history), automated preventive maintenance recommendation engine, interactive 5-line factory floor map, active threshold alerting mechanism, model explainability root-cause engine, historical failure trends, and downloadable maintenance dispatch reports are fully implemented and verified.
+> **Project status:** Prototype, not production-ready or safety-certified. The replay uses historical benchmark records; it is not connected to live factory telemetry. Model recommendations and schedule entries are advisory and require qualified human review. The downtime comparison is an assumption-based scenario, not an observed trial or verified savings.
 
 ---
 
@@ -10,11 +10,12 @@ An end-to-end intelligent predictive-maintenance solution that uses real histori
 
 - [Project Overview](#project-overview)
 - [Key Features & Capabilities](#key-features--capabilities)
+- [Replay and Dashboard Semantics](#replay-and-dashboard-semantics)
 - [Multi-Model Machine Learning Architecture](#multi-model-machine-learning-architecture)
-- [Dataset & Physical Machine Readings](#dataset--physical-machine-readings)
+- [Model Attribution and Explanation](#model-attribution-and-explanation)
 - [Maintenance Recommendation Engine](#maintenance-recommendation-engine)
-- [Dashboard & Analytics Features](#dashboard--analytics-features)
-- [Model Explainability & Root-Cause Diagnosis](#model-explainability--root-cause-diagnosis)
+- [Data Provenance and Licensing](#data-provenance-and-licensing)
+- [Operating Limitations](#operating-limitations)
 - [Technology Stack](#technology-stack)
 - [Project Layout](#project-layout)
 - [Getting Started](#getting-started)
@@ -32,33 +33,42 @@ The platform addresses all predictive maintenance pillars:
 2. **Predict when failure will happen** (Remaining Useful Life in hours).
 3. **Predict how severe the risk is** (failing component mode, downtime hours, and risk severity index 0–100).
 4. **Recommend maintenance actions**: priority rank, scheduled time window, and classification into **URGENT**, **PREVENTIVE**, or **ROUTINE**.
-5. **Real-time Alerting**: Active banner and audio chimes when equipment crosses the risk threshold.
-6. **Model Explainability**: Transparent root-cause driver explanations (sensor z-score deviations, thermal rise, error logs, service recency).
-7. **Simulated Factory Scenario Demonstration**: Preset breakdown scenarios and interactive 5-line production floor map.
+5. **Replay alerts**: Alert state uses the backend's configured threshold during historical replay.
+6. **Model explanation**: LightGBM feature contributions are shown in raw log-odds space; they are not causal explanations. Sensor-baseline indicators are separate from model attribution.
+7. **Historical replay**: Preset positions and replay controls operate on historical records; no live feed or streaming ingestion is implemented.
 
 ---
 
 ## Key Features & Capabilities
 
-- **Zero Fake or Synthetic Data**: Grounded in empirical manufacturing records (`cleaned_telemetry.csv`, `cleaned_errors.csv`, `cleaned_failures.csv`, `cleaned_machines.csv`, `cleaned_maintenance.csv`).
-- **Complete Machine Readings**:
-  - **Operating Temperature (°C)**: Derived from physical electromechanical thermodynamics ($T = 20 + 0.12 \times \text{volt} + 0.04 \times (\text{rotate}/10) + 0.25 \times \text{vibration} + 0.08 \times \text{pressure}$).
+- **Data scope**: The checked-in cleaned CSVs and derived feature data are used as historical benchmark data. The repository does not establish a data-use license or complete source provenance; verify the original dataset terms before redistribution or operational use.
+- **Available historical readings** (values may be missing):
+  - **Temperature proxy (°C)**: Formula-derived from other channels, not a separately measured temperature sensor ($T = 20 + 0.12 \times \text{volt} + 0.04 \times (\text{rotate}/10) + 0.25 \times \text{vibration} + 0.08 \times \text{pressure}$).
   - **Vibration (mm/s)**, **Pressure (kPa)**, **Rotation Speed (RPM)**, **Voltage (V)**.
-  - **Cumulative Operating Runtime**: Machine total hours and hours since last overhaul.
+  - **Runtime estimates**: Computed from machine age and dataset timestamps; maintenance recency comes from recorded event data.
   - **Error Logs**: Frequency in 3h, 12h, 24h, and time since last error.
-  - **Downtime History**: Total historical failure events and cumulative outage hours per machine.
+  - **Failure history**: Historical failure event counts. Downtime values are estimates derived from component-duration assumptions.
   - **Maintenance History**: Component replacements and service recency.
 - **Five Dashboard Pillars**:
-  1. **Machine Health Score (0–100%)**: Continuous composite index showing equipment vitality.
-  2. **Failure Probability**: Calibrated risk probability percentage.
-  3. **Maintenance Priority**: Categorized into `URGENT`, `PREVENTIVE`, or `ROUTINE`.
-  4. **Predicted Downtime**: Hours of factory stoppage averted (e.g. 12h for bearing failure, 8h for shaft failure).
-  5. **Historical Failure Trends**: 2015 monthly historical breakdown by component and downtime hours.
-- **Alert Mechanism**: Dynamic threshold slider (50%–99%), pulsing visual banner, and synthesized audio chime.
-- **Interactive Factory Floor Map**: Visualizes 5 production lines (Line 1 to Line 5, 20 machines each) with live health scores.
-- **Maintenance Dispatch Report**: Generates formatted work orders with technician capacity planning.
+  1. **Composite health score**: A project-defined index calculated from model probability and selected sensor/error/maintenance features; not an independently validated condition standard.
+  2. **Failure probability**: Model-estimated probability for the next 24 hours; calibration in deployment is not established.
+  3. **Maintenance priority**: Probability bands map to `URGENT`, `PREVENTIVE`, or `ROUTINE`; they are project configuration, not certified operating limits.
+  4. **Repair-duration assumptions**: Component durations and costs are estimates, not measured factory downtime avoided.
+  5. **Historical Failure Trends**: 2015 monthly historical failure counts by component and assumption-based downtime estimates.
+- **Alert Mechanism**: The operational alert threshold is backend-configured at 0.98; category thresholds are CRITICAL ≥ 0.98, HIGH ≥ 0.85, MEDIUM ≥ 0.50, and LOW otherwise.
+- **Factory layout**: Groups machine metadata and saved priority records by production line. The line view does not measure live line health.
+- **Maintenance planning**: Produces a proposed schedule with a daily capacity limit and explicitly marks allocations infeasible when the estimated slot plus task duration exceeds model RUL. Technician availability, parts stock, safety procedures, and plant constraints are not verified.
+- **Replay versus streaming**: The app steps through historical snapshots and keeps the replay cursor in backend memory. It does not implement a message broker, persistent replay store, sensor gateway, or real-time stream processing.
 
 ---
+
+## Replay and Dashboard Semantics
+
+- Before replay starts, the machine registry and line map show checked-in priority and metadata artifacts, not fresh per-machine model predictions.
+- A replay snapshot runs the saved models for the historical timestamp. Start, pause, advance-one-hour, reset, and preset positions do not generate or ingest new telemetry.
+- Refreshing the browser reloads the replay position from backend process memory. Restarting the backend resets that state.
+- The details panel predicts for the selected machine at the selected replay timestamp when available; otherwise it uses the latest historical snapshot.
+- Maintenance output is a capacity-limited inspection proposal. A slot marked `INFEASIBLE` cannot be treated as a safe intervention recommendation.
 
 ## Multi-Model Machine Learning Architecture
 
@@ -75,7 +85,7 @@ The system deploys three gradient-boosted decision tree models (LightGBM):
                  |                              |                              |
                  v                              v                              v
       P(Failure in 24h)                 Remaining Useful Life           Failing Component Mode
-     ROC-AUC: 0.9999, F1: 0.976          MAE in window: 5.8 hrs          comp1, comp2, comp3, comp4
+     ROC-AUC: 0.99989, F1: 0.9762        MAE: 5.8 hrs                    comp1, comp2, comp3, comp4
                  |                              |                        Accuracy: 96.0%
                  +------------------------------+------------------------------+
                                                 |
@@ -86,28 +96,46 @@ The system deploys three gradient-boosted decision tree models (LightGBM):
                      |                          |                          |
                      v                          v                          v
              Health Score (0-100)        Priority Category           Schedule Window
-             e.g. 24% (Critical)         URGENT / PREVENTIVE       "Immediate: within 12h"
+             project-defined index       probability bands         capacity-limited proposal
 ```
 
 ### Model Performance Metrics (Evaluated on Chronologically Held-Out Test Set)
 
 | Model | Target Output | Metric | Evaluation Score |
 |---|---|---|---|
-| **Failure Likelihood** | Binary (Failure within next 24h) | ROC-AUC / PR-AUC / F1 | **0.9999** / **0.9927** / **0.9762** |
-| **Remaining Useful Life** | Continuous hours until next failure | MAE (Urgent window $\le$ 24h) | **5.80 hours** |
-| **Failure Mode Severity** | Multiclass (`comp1`, `comp2`, `comp3`, `comp4`) | Multiclass Accuracy | **95.99%** |
+| **Failure Likelihood** | Binary (failure within next 24h) | ROC-AUC / PR-AUC / F1 at 0.98 | **0.99989** / **0.99266** / **0.9762** |
+| **Remaining Useful Life** | Hours to next recorded failure, capped at 168 | MAE on urgent test rows | **5.80 hours** |
+| **Failure Mode** | Multiclass (`comp1`–`comp4`) | Accuracy | **95.99%** |
+
+These are values recorded in the model metadata and training script, not a fresh evaluation in this remediation. The training script uses a chronological cutoff at 2015-10-19 11:00 with a 24-hour embargo for the binary target. The reported scores do not establish calibration, generalization to other plants, or value in a live deployment.
+
+## Model Attribution and Explanation
+
+The backend requests LightGBM `pred_contrib` values and returns the five largest feature contributions in raw model-score (log-odds) space. This is model attribution, not proof that a sensor caused a failure. Separately, baseline-deviation and recent-error indicators are explanatory heuristics; they are not the LightGBM contributions. Missing sensor values are imputed using saved training statistics for inference and are surfaced as missing in the displayed sensor readings.
 
 ---
 
 ## Maintenance Recommendation Engine
 
-The recommendation engine translates multi-model outputs into actionable technician tasks:
+The prototype maps the failure-probability model output to advisory risk bands. The RUL and component models inform the inspection proposal but do not override the risk category. Thresholds are not validated safety or maintenance limits.
 
 | Priority Category | Trigger Condition | Recommended Schedule Window | Recommended Action |
 |---|---|---|---|
-| **URGENT** | Probability $\ge$ 85%, or RUL $\le$ 24h, or Risk Score $\ge$ 80 | Immediate shutdown: schedule within next 6–12 hours | Immediate technician dispatch; replace failing component before catastrophic breakdown |
-| **PREVENTIVE** | Probability 50%–84%, or RUL 24–72h, or elevated sensor degradation | Schedule preventive maintenance within 24–48 hours | Inspect component during planned maintenance window |
-| **ROUTINE** | Probability < 50%, Health Score $\ge$ 80% | Next scheduled maintenance cycle (Day 5–7+) | Continue standard cycle monitoring |
+| **URGENT** | Probability ≥ 0.98 (`CRITICAL`) | Highest priority in the proposed queue | Qualified inspection; follow site safety and shutdown procedures |
+| **PREVENTIVE** | Probability ≥ 0.85 and < 0.98 (`HIGH`), or ≥ 0.50 and < 0.85 (`MEDIUM`) | Within the available planning capacity | Inspection proposal; verify evidence and feasibility |
+| **ROUTINE** | Probability < 0.50 (`LOW`) | Routine monitoring | No risk-band-triggered work order |
+
+### Data provenance and licensing
+
+The project attributes its cleaned records to the Microsoft Azure Predictive Maintenance benchmark. The repository does not include a source citation with version, acquisition details, or license terms, so provenance and redistribution rights have not been independently established here. Confirm the original dataset terms before sharing or using these files outside this project. The checked-in failure table contains events; downtime totals shown by the app are derived using the component-duration constants in the backend, not measured outage durations.
+
+### Operating limitations
+
+- Historical replay is not streaming and has no live sensor connection.
+- Model metrics are reported training artifacts; the remediation does not retrain or independently reproduce them.
+- Feature attributions describe model-score contributions and are not causal explanations.
+- Schedule entries are proposals, not CMMS work orders; technician availability, plant shutdown rules, sensor quality limits, and actual inventory are not integrated.
+- The illustrative downtime/cost comparison depends on explicit duration and hourly-cost assumptions. It is not evidence that the model prevents failures or saves money.
 
 ---
 
@@ -116,7 +144,7 @@ The recommendation engine translates multi-model outputs into actionable technic
 - **Machine Learning**: LightGBM, scikit-learn, NumPy, Pandas, Joblib
 - **Backend API**: FastAPI, Uvicorn, Pydantic
 - **Frontend Dashboard**: React 19, Vite, Recharts, DM Sans Typography
-- **Testing**: Python unittest (11 comprehensive unit tests)
+- **Testing**: Python unittest (13 focused backend tests); no automated browser end-to-end suite is included.
 
 ---
 
@@ -132,7 +160,7 @@ AI-Manufacturing-VSCode/
 │   │   ├── main.py                     # FastAPI backend with multi-model inference
 │   │   └── model_utils.py
 │   ├── data/
-│   │   ├── raw/cleaned_dataset/        # Real Azure PdM CSVs & features parquet
+│   │   ├── raw/cleaned_dataset/        # Cleaned historical benchmark CSVs and features
 │   │   │   ├── cleaned_telemetry.csv
 │   │   │   ├── cleaned_errors.csv
 │   │   │   ├── cleaned_failures.csv
@@ -149,7 +177,7 @@ AI-Manufacturing-VSCode/
 │   │   ├── sensor_baseline_statistics.json # Explainability baselines
 │   │   └── model_metadata.json
 │   ├── tests/
-│   │   └── test_inference.py           # 11 unit tests
+│   │   └── test_inference.py           # Backend inference and regression tests
 │   ├── test_models_suite.py            # End-to-end verification script
 │   ├── train_models_complete.py        # Reproducible model training pipeline
 │   └── requirements.txt
@@ -168,7 +196,7 @@ AI-Manufacturing-VSCode/
 
 ### Prerequisites
 
-- Python 3.10+
+- Python 3.11+
 - Node.js 18+ and npm
 
 ### 1. Start the Backend API
@@ -177,6 +205,9 @@ Open a PowerShell terminal:
 
 ```powershell
 cd AI-Manufacturing-VSCode\backend
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
 $env:PYTHONPATH="."
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
@@ -201,44 +232,41 @@ Open your browser at `http://localhost:5173`.
 | Endpoint | Method | Description |
 |---|---|---|
 | `GET /api/health` | GET | Health check returning status of models and data files |
-| `GET /api/overview` | GET | Factory summary statistics, average health score, downtime averted |
+| `GET /api/overview` | GET | Saved priority summary, historical failure count, and component-duration downtime estimate |
+| `GET /api/risk-config` | GET | Shared risk bands and operational alert threshold |
 | `GET /api/predict/machine/{machine_id}` | GET | Returns multi-model prediction, RUL, severity, health, and explanation |
 | `GET /api/machines/{machine_id}/details` | GET | Detailed sensor snapshot, downtime history, and maintenance schedule |
 | `POST /api/predict` | POST | 47-feature vector inference |
-| `GET /api/historical_trends` | GET | Real 2015 monthly failure counts by component and downtime hours |
-| `GET /api/production_lines` | GET | 5 production lines (100 machines) with aggregated health scores |
+| `GET /api/historical_trends` | GET | 2015 monthly failure counts and component-duration downtime estimates |
+| `GET /api/production_lines` | GET | Machine metadata and saved priority grouping by production line |
 | `GET /api/simulation/scenarios` | GET | Available factory demonstration scenarios |
 | `POST /api/simulation/scenario/{id}` | POST | Jumps factory state to selected demonstration scenario |
 | `POST /api/simulation/step` | POST | Advances simulated factory production line by 1 hour |
+| `GET /api/simulation/state` | GET | Returns the current in-memory replay snapshot for page refresh |
 | `POST /api/simulation/reset` | POST | Resets simulation cursor to initial state |
 | `GET /api/alerts/active` | GET | Returns all machines currently crossing the alert risk threshold |
 | `GET /api/maintenance/report` | GET | Generates structured maintenance work orders and dispatch plan |
+| `GET /api/maintenance/schedule_realistic` | GET | Returns capacity-limited schedule proposals and infeasibility status |
 
 ---
 
 ## Verification & Test Results
 
-Run the verification suite:
+Run the backend unit and regression tests:
 
 ```powershell
 cd AI-Manufacturing-VSCode\backend
 $env:PYTHONPATH="."
-python test_models_suite.py
-```
-
-Run the unit tests:
-
-```powershell
-python tests/test_inference.py
+python -m unittest discover -s tests -v
 ```
 
 Result:
 ```text
-...........
+...............
 ----------------------------------------------------------------------
-Ran 11 tests in 1.147s
+Ran 15 tests
 
 OK
-All ML models and feature baselines loaded successfully.
-Features: 47, RUL model: True, Component model: True
 ```
+
+The backend tests and frontend production build were run during the latest code changes. Manual browser checks covered replay controls, replay restoration after refresh, the report modal, machine details, and model-attribution rendering; no console errors were observed. The frontend build reports a bundle-size advisory. There is no automated browser end-to-end suite or live-feed testing. Validate the saved artifacts in a clean environment using `backend/requirements.txt` before deployment.
