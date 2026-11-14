@@ -1,6 +1,8 @@
 from pathlib import Path
 from functools import lru_cache
 import json
+import logging
+import math
 import threading
 from typing import Any
 
@@ -10,11 +12,12 @@ import pandas as pd
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.feature_pipeline import build_features_from_directory
 from app.model_utils import impute_missing_features, load_imputer_statistics
 
+logger = logging.getLogger(__name__)
 
 # --------------------------------------------------
 # PATHS
@@ -40,14 +43,15 @@ GENERATED_FEATURES_PATH = (
 
 
 # --------------------------------------------------
-# COMPONENT FAILURE METRICS (Azure PdM Domain)
+# COMPONENT FAILURE LABELS AND UNVALIDATED DURATION ASSUMPTIONS
 # --------------------------------------------------
 
+# Used only for planning/scenario estimates; these are not measured site durations.
 COMPONENT_DOWNTIME_HOURS = {
-    "comp1": 4.0,   # Electrical / inverter component replacement
-    "comp2": 8.0,   # Drive shaft & mechanical coupling replacement
-    "comp3": 6.0,   # Pressure pump seal & valve overhaul
-    "comp4": 12.0,  # Heavy rotor bearing assembly replacement
+    "comp1": 4.0,
+    "comp2": 8.0,
+    "comp3": 6.0,
+    "comp4": 12.0,
 }
 
 COMPONENT_SEVERITY_WEIGHTS = {
@@ -68,7 +72,8 @@ COMPONENT_NAMES = {
 # INDUSTRIAL SCHEDULING REALISM CONSTANTS
 # --------------------------------------------------
 
-DOWNTIME_COST_PER_HOUR = 2500.0  # Average discrete manufacturing throughput loss ($/hr)
+# Illustrative scenario assumption, not a measured site throughput cost.
+DOWNTIME_COST_PER_HOUR = 2500.0
 
 SHIFT_CALENDAR = [
     {"shift_id": "SHIFT_1", "name": "Morning Shift", "hours": "06:00 - 14:00", "duration_hours": 8.0},
@@ -114,36 +119,49 @@ SPARE_PARTS_INVENTORY = {
     },
 }
 
-# ISO 17359 / ISO 10816 Condition Monitoring Validated Maintenance Rules
-ISO_MAINTENANCE_RULES = {
+# Advisory project guidance; these bands are not ISO-certified diagnostic rules.
+MAINTENANCE_GUIDANCE = {
     "CRITICAL": {
-        "zone": "Zone D (Critical / Emergency Intervention)",
-        "iso_standard": "ISO 17359 Critical Alert & ISO 10816 Zone D (> 4.5 mm/s RMS)",
-        "min_probability": 0.70,
+        "zone": "Critical risk band",
+        "min_probability": 0.98,
         "max_rul_hours": 24.0,
-        "action": "Immediate controlled machine shutdown within current shift to avert rotor seizure.",
+        "action": "Prompt qualified inspection; follow site safety and shutdown procedures.",
     },
     "HIGH": {
-        "zone": "Zone C (Restricted Operation / Preventive Action)",
-        "iso_standard": "ISO 17359 Warning Alert & ISO 10816 Zone C (2.8 - 4.5 mm/s RMS)",
-        "min_probability": 0.40,
+        "zone": "High risk band",
+        "min_probability": 0.85,
         "max_rul_hours": 72.0,
-        "action": "Schedule preventive component overhaul within 24–48 hours; restrict load.",
+        "action": "Prioritize a qualified inspection within the available maintenance capacity.",
     },
     "MEDIUM": {
-        "zone": "Zone B (Monitored Degradation / Surveillance)",
-        "iso_standard": "ISO 17359 Surveillance & ISO 10816 Zone B (1.8 - 2.8 mm/s RMS)",
-        "min_probability": 0.15,
+        "zone": "Medium risk band",
+        "min_probability": 0.50,
         "max_rul_hours": 168.0,
-        "action": "Increase telemetry sampling frequency; verify spare parts inventory.",
+        "action": "Plan a preventive inspection when capacity permits.",
     },
     "LOW": {
-        "zone": "Zone A (Nominal / Unrestricted Operation)",
-        "iso_standard": "ISO 17359 Nominal & ISO 10816 Zone A (< 1.8 mm/s RMS)",
+        "zone": "Low risk band",
         "min_probability": 0.00,
         "max_rul_hours": 9999.0,
-        "action": "Normal operation; maintain standard routine preventive inspection cycle.",
+        "action": "Continue routine monitoring; this prototype does not replace site procedures.",
     },
+}
+
+RISK_CONFIGURATION = {
+    "operational_alert_threshold": 0.98,
+    "risk_bands": [
+        {"category": "CRITICAL", "minimum_probability": 0.98},
+        {"category": "HIGH", "minimum_probability": 0.85},
+        {"category": "MEDIUM", "minimum_probability": 0.50},
+        {"category": "LOW", "minimum_probability": 0.0},
+    ],
+}
+
+MAINTENANCE_CATEGORY_BY_RISK = {
+    "CRITICAL": "URGENT",
+    "HIGH": "PREVENTIVE",
+    "MEDIUM": "PREVENTIVE",
+    "LOW": "ROUTINE",
 }
 
 
@@ -161,6 +179,16 @@ FILES = {
     "failure_matches": "strict_24h_failure_matches.csv",
 }
 
+REQUIRED_CSV_COLUMNS = {
+    "priorities": {"machineID", "priority"},
+    "recommendations": {"machineID"},
+    "components": {"model", "failure", "failure_count"},
+    "schedule": {"machineID"},
+    "daily_workload": {"allocation_label", "machines"},
+    "capacity": {"machines_per_day", "machines_requiring_inspection"},
+    "failure_matches": {"machineID", "failure_datetime"},
+}
+
 
 # --------------------------------------------------
 # FASTAPI APP
@@ -170,8 +198,8 @@ app = FastAPI(
     title="AI Manufacturing Optimization API",
     version="2.5.0",
     description=(
-        "Industrial predictive maintenance API predicting equipment failure, "
-        "Remaining Useful Life (RUL), risk severity, and preventive maintenance scheduling."
+        "Predictive-maintenance prototype for historical benchmark replay. "
+        "Predictions and schedule proposals are advisory; no live factory feed is connected."
     ),
 )
 
@@ -243,24 +271,47 @@ except Exception as error:
 
 class PredictionRequest(BaseModel):
     features: dict[str, float | None]
-    threshold: float = Field(default=0.98, ge=0, le=1)
+
+    @field_validator("features")
+    @classmethod
+    def reject_non_finite_features(cls, features: dict[str, float | None]):
+        if any(value is not None and not math.isfinite(value) for value in features.values()):
+            raise ValueError("Feature values must be finite numbers or null.")
+        return features
 
 
 class SimulationStepRequest(BaseModel):
     machines_per_day: int = Field(default=5, ge=1, le=100)
 
 
+def validate_machines_per_day(machines_per_day: int) -> int:
+    if not 1 <= machines_per_day <= 100:
+        raise HTTPException(
+            status_code=422,
+            detail="machines_per_day must be between 1 and 100.",
+        )
+    return machines_per_day
+
+
 # --------------------------------------------------
 # SIMULATION STATE
 # --------------------------------------------------
 
-SIMULATION_RISK_BANDS = (
-    (0.98, "CRITICAL"),
-    (0.85, "HIGH"),
-    (0.50, "MEDIUM"),
-)
 simulation_lock = threading.Lock()
 simulation_position = -1
+
+
+def classify_risk(probability: float) -> str:
+    if not math.isfinite(probability) or not 0.0 <= probability <= 1.0:
+        raise ValueError("Failure probability must be finite and between 0 and 1.")
+    for band in RISK_CONFIGURATION["risk_bands"]:
+        if probability >= band["minimum_probability"]:
+            return band["category"]
+    return "LOW"
+
+
+def maintenance_category_for_risk(risk_category: str) -> str:
+    return MAINTENANCE_CATEGORY_BY_RISK[risk_category]
 
 
 @lru_cache(maxsize=1)
@@ -269,24 +320,82 @@ def get_machine_models():
     return {mid: info["model"] for mid, info in meta.items()}
 
 
-def read_csv(key: str) -> pd.DataFrame:
-    path = DATA / FILES.get(key, "")
-    if not path.exists():
-        return pd.DataFrame()
+def load_required_csv(
+    path: Path,
+    dataset_name: str,
+    required_columns: set[str],
+) -> pd.DataFrame:
+    if not path.is_file():
+        logger.error("Required dataset is missing: %s", path)
+        raise HTTPException(
+            status_code=503,
+            detail=f"Required dataset '{dataset_name}' is unavailable.",
+        )
     try:
-        return pd.read_csv(path)
-    except Exception:
-        return pd.DataFrame()
+        frame = pd.read_csv(path)
+    except (OSError, pd.errors.ParserError, UnicodeError) as error:
+        logger.exception("Could not read dataset '%s' from %s", dataset_name, path)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Dataset '{dataset_name}' could not be read.",
+        ) from error
+
+    missing_columns = required_columns.difference(frame.columns)
+    if missing_columns:
+        logger.error(
+            "Dataset '%s' is missing required columns: %s",
+            dataset_name,
+            sorted(missing_columns),
+        )
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": f"Dataset '{dataset_name}' has an invalid schema.",
+                "missing_columns": sorted(missing_columns),
+            },
+        )
+    return frame
+
+
+def read_csv(key: str) -> pd.DataFrame:
+    if key not in FILES:
+        raise HTTPException(status_code=404, detail="Unknown dataset.")
+    return load_required_csv(
+        DATA / FILES[key],
+        key,
+        REQUIRED_CSV_COLUMNS.get(key, set()),
+    )
+
+
+def to_json_safe(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): to_json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [to_json_safe(item) for item in value]
+    if isinstance(value, np.ndarray):
+        return to_json_safe(value.tolist())
+    if isinstance(value, np.generic):
+        return to_json_safe(value.item())
+    if isinstance(value, pd.Timestamp):
+        return value.isoformat()
+    if value is pd.NA or value is pd.NaT:
+        return None
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    return value
+
+
+def optional_finite_float(value: Any) -> float | None:
+    if value is None or pd.isna(value):
+        return None
+    numeric = float(value)
+    return numeric if math.isfinite(numeric) else None
 
 
 def rows(df: pd.DataFrame) -> list[dict[str, Any]]:
     if df.empty:
         return []
-    return (
-        df.astype(object)
-        .where(pd.notna(df), None)
-        .to_dict("records")
-    )
+    return to_json_safe(df.astype(object).where(pd.notna(df), None).to_dict("records"))
 
 
 def check_model():
@@ -306,9 +415,7 @@ def check_model():
 
 def calculate_temperature(volt: float | None, rotate: float | None, pressure: float | None, vibration: float | None) -> float:
     """
-    Thermodynamic operating temperature (°C) derived from electrical & mechanical work.
-    Formula: T(t) = 20.0 + 0.12*V + 0.04*(RPM/10) + 0.25*Vib + 0.08*P
-    Normal range: 55°C - 80°C. Fault/severe friction: > 90°C.
+    Calculate the project's formula-derived temperature proxy in degrees Celsius.
     """
     v = volt if volt is not None and np.isfinite(volt) else 170.0
     r = rotate if rotate is not None and np.isfinite(rotate) else 446.0
@@ -321,8 +428,7 @@ def calculate_temperature(volt: float | None, rotate: float | None, pressure: fl
 
 def estimate_downtime_breakdown(component: str, priority: str) -> dict[str, Any]:
     """
-    Estimates precise downtime duration in hours and financial impact
-    broken down by diagnostic, component replacement, and testing phases.
+    Calculate an illustrative duration and cost estimate from project assumptions.
     """
     active_replacement = COMPONENT_DOWNTIME_HOURS.get(component, 8.0)
     diagnostic_inspection = 1.0 if priority in ("CRITICAL", "HIGH") else 1.5
@@ -337,59 +443,21 @@ def estimate_downtime_breakdown(component: str, priority: str) -> dict[str, Any]
         "diagnostic_hours": diagnostic_inspection,
         "active_replacement_hours": active_replacement,
         "testing_calibration_hours": testing_and_calibration,
-        "line_bottleneck_impact": "Direct Line Halting (Critical Path)" if priority == "CRITICAL" else "Buffered Substation",
+        "line_bottleneck_impact": "Not assessed; production dependency data is unavailable.",
         "estimated_financial_loss_usd": financial_loss,
         "cost_per_hour_rate_usd": DOWNTIME_COST_PER_HOUR,
+        "estimate_basis": "Unvalidated component-duration and hourly-cost assumptions.",
     }
 
 
-def calculate_general_ttf(predicted_rul_hours: float, probability: float) -> dict[str, Any]:
-    """
-    Estimates general Time-To-Failure (TTF) across the entire equipment lifecycle
-    including hours, days, 90% confidence bounds, and operational horizon.
-    """
-    if probability < 0.05:
-        base_rul = max(predicted_rul_hours, 720.0 + (1.0 - probability) * 100.0)
-    elif probability < 0.15:
-        base_rul = max(predicted_rul_hours, 360.0)
-    elif probability < 0.40:
-        base_rul = max(predicted_rul_hours, 96.0)
-    elif probability >= 0.70:
-        base_rul = min(predicted_rul_hours, 24.0)
-    else:
-        base_rul = predicted_rul_hours
-
-    base_rul = round(float(base_rul), 1)
-    days = round(base_rul / 24.0, 1)
-
-    uncertainty_margin = round(max(1.5, base_rul * 0.18), 1)
-    ci_lower = round(max(0.5, base_rul - uncertainty_margin), 1)
-    ci_upper = round(base_rul + uncertainty_margin, 1)
-
-    if base_rul <= 24.0:
-        horizon = "Imminent Failure Window (< 24 Hours)"
-        urgency = "IMMEDIATE"
-    elif base_rul <= 72.0:
-        horizon = "Near-Term Window (1 – 3 Days)"
-        urgency = "HIGH"
-    elif base_rul <= 168.0:
-        horizon = "Medium-Term Window (3 – 7 Days)"
-        urgency = "MODERATE"
-    elif base_rul <= 720.0:
-        horizon = "Long-Term Wear Horizon (1 – 4 Weeks)"
-        urgency = "PLANNING"
-    else:
-        horizon = "Extended Nominal Operations (> 30 Days)"
-        urgency = "NOMINAL"
-
+def calculate_general_ttf(predicted_rul_hours: float) -> dict[str, Any]:
+    """Expose the RUL model output without inventing calibrated uncertainty bounds."""
+    rul_hours = round(float(predicted_rul_hours), 1)
     return {
-        "ttf_hours": base_rul,
-        "ttf_days": days,
-        "ttf_horizon": horizon,
-        "urgency_level": urgency,
-        "confidence_lower_hours": ci_lower,
-        "confidence_upper_hours": ci_upper,
-        "confidence_interval_text": f"{base_rul:.1f} hrs (90% CI: {ci_lower:.1f} – {ci_upper:.1f} hrs)",
+        "ttf_hours": rul_hours,
+        "ttf_days": round(rul_hours / 24.0, 1),
+        "confidence_interval_text": "No calibrated confidence interval is available.",
+        "confidence_interval_calibrated": False,
     }
 
 
@@ -402,8 +470,7 @@ def calculate_composite_health_index(
     runtime_since_maint_hours: float = 0.0,
 ) -> dict[str, Any]:
     """
-    Standard Composite Health Index (CHI: 0 - 100%) grounded in ISO 17359.
-    Provides mathematically transparent sub-score penalty breakdowns.
+    Calculate the project's 0-100 health index; it is not an ISO-validated standard.
     """
     prob_penalty = round(min(40.0, failure_probability * 40.0), 1)
 
@@ -456,81 +523,52 @@ def calculate_health_score(
     return chi["health_score"]
 
 
-def extract_feature_contributions(
-    feature_row: dict[str, Any],
-    sensor_readings: dict[str, float],
-    probability: float,
+def extract_model_contributions(
+    imputed_features: pd.DataFrame,
+    row_index: int = 0,
+    precomputed: np.ndarray | None = None,
 ) -> list[dict[str, Any]]:
-    """
-    Extracts the top 5 exact features driving the machine risk prediction,
-    comparing actual values against nominal dataset baselines.
-    """
-    candidates = []
-
-    vib = sensor_readings.get("vibration") or 40.0
-    vib_base = baseline_statistics.get("vibration", {"mean": 40.0, "std": 4.5})
-    vib_z = (vib - vib_base["mean"]) / max(0.1, vib_base["std"])
-    candidates.append({
-        "feature": "vibration_telemetry",
-        "display_name": "Vibration Amplitude (RMS)",
-        "value": f"{vib:.2f} mm/s",
-        "baseline": f"{vib_base['mean']:.1f} mm/s",
-        "deviation_std": round(vib_z, 2),
-        "impact": "HIGH_RISK" if vib_z > 2.0 else "ELEVATED" if vib_z > 1.0 else "NOMINAL",
-        "contribution_percent": round(min(50.0, max(5.0, abs(vib_z) * 12.0)), 1),
-    })
-
-    temp = sensor_readings.get("temperature") or 70.0
-    temp_base = baseline_statistics.get("temperature", {"mean": 70.0, "std": 5.0})
-    temp_z = (temp - temp_base["mean"]) / max(0.1, temp_base["std"])
-    candidates.append({
-        "feature": "temperature_thermodynamic",
-        "display_name": "Operating Temperature",
-        "value": f"{temp:.1f} C",
-        "baseline": f"{temp_base['mean']:.1f} C",
-        "deviation_std": round(temp_z, 2),
-        "impact": "HIGH_RISK" if temp_z > 2.0 else "ELEVATED" if temp_z > 1.0 else "NOMINAL",
-        "contribution_percent": round(min(40.0, max(4.0, abs(temp_z) * 10.0)), 1),
-    })
-
-    volt = sensor_readings.get("volt") or 170.0
-    volt_base = baseline_statistics.get("volt", {"mean": 170.0, "std": 15.0})
-    volt_z = (volt - volt_base["mean"]) / max(0.1, volt_base["std"])
-    candidates.append({
-        "feature": "volt_telemetry",
-        "display_name": "Operating Voltage",
-        "value": f"{volt:.1f} V",
-        "baseline": f"{volt_base['mean']:.1f} V",
-        "deviation_std": round(volt_z, 2),
-        "impact": "HIGH_RISK" if abs(volt_z) > 2.0 else "ELEVATED" if abs(volt_z) > 1.0 else "NOMINAL",
-        "contribution_percent": round(min(30.0, max(3.0, abs(volt_z) * 8.0)), 1),
-    })
-
-    err_24h = int(feature_row.get("error_count_24h") or 0)
-    candidates.append({
-        "feature": "error_count_24h",
-        "display_name": "24h Error Log Frequency",
-        "value": f"{err_24h} logs",
-        "baseline": "0.0 logs",
-        "deviation_std": round(float(err_24h), 1),
-        "impact": "HIGH_RISK" if err_24h >= 2 else "ELEVATED" if err_24h > 0 else "NOMINAL",
-        "contribution_percent": round(min(35.0, err_24h * 12.0), 1),
-    })
-
-    maint_hours = float(feature_row.get("maintenance_time_since_last_hours") or 0.0)
-    maint_days = round(maint_hours / 24.0, 1)
-    candidates.append({
-        "feature": "maintenance_time_since_last_hours",
-        "display_name": "Elapsed Time Since Overhaul",
-        "value": f"{maint_days} days ({maint_hours:.0f} hrs)",
-        "baseline": "30.0 days",
-        "deviation_std": round((maint_days - 30.0) / 10.0, 2),
-        "impact": "HIGH_RISK" if maint_days > 50 else "ELEVATED" if maint_days > 40 else "NOMINAL",
-        "contribution_percent": round(min(25.0, max(2.0, maint_days * 0.4)), 1),
-    })
-
-    candidates.sort(key=lambda x: -x["contribution_percent"])
-    return candidates[:5]
+    booster = getattr(model, "booster_", None)
+    if booster is None and precomputed is None:
+        return []
+    try:
+        contributions = np.asarray(precomputed, dtype=np.float64) if precomputed is not None else np.asarray(
+            booster.predict(imputed_features, pred_contrib=True),
+            dtype=np.float64,
+        )
+        if contributions.ndim == 1:
+            contributions = contributions.reshape(1, -1)
+        if (
+            contributions.ndim != 2
+            or contributions.shape[1] != len(feature_columns) + 1
+            or not 0 <= row_index < contributions.shape[0]
+        ):
+            raise ValueError(
+                "Unexpected LightGBM feature-contribution output shape: "
+                f"{contributions.shape}"
+            )
+        values = imputed_features.iloc[row_index]
+        ranked = [
+            {
+                "feature": name,
+                "value": float(values[name]),
+                "contribution_log_odds": float(contributions[row_index, index]),
+                "direction": (
+                    "increases"
+                    if contributions[row_index, index] > 0
+                    else "decreases"
+                ),
+            }
+            for index, name in enumerate(feature_columns)
+        ]
+        return sorted(
+            ranked,
+            key=lambda item: abs(item["contribution_log_odds"]),
+            reverse=True,
+        )[:5]
+    except Exception:
+        logger.exception("Could not calculate LightGBM feature contributions.")
+        return []
 
 
 def generate_explanation(
@@ -540,97 +578,105 @@ def generate_explanation(
     component: str,
     sensor_readings: dict[str, float],
     feature_row: dict[str, Any],
+    model_contributions: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """
-    Provide human-understandable explanation of model output
-    highlighting the exact root cause anomalies why a machine is flagged,
-    citing specific numerical sensor readings and ISO 17359 maintenance rules.
-    """
-    reasons = []
+    sensor_indicators = []
     vib = sensor_readings.get("vibration")
     temp = sensor_readings.get("temperature")
     pres = sensor_readings.get("pressure")
-    rot = sensor_readings.get("rotate")
-    volt = sensor_readings.get("volt")
 
     vib_base = baseline_statistics.get("vibration", {"mean": 40.0, "std": 4.5})
     temp_base = baseline_statistics.get("temperature", {"mean": 70.0, "std": 5.0})
     pres_base = baseline_statistics.get("pressure", {"mean": 100.0, "std": 10.0})
+    for sensor_name, sensor_value in sensor_readings.items():
+        if sensor_value is None:
+            sensor_indicators.append(
+                f"{sensor_name} was not recorded; the model input was imputed from training statistics."
+            )
 
-    vib_z = (vib - vib_base["mean"]) / vib_base["std"] if vib is not None else 0.0
-    temp_z = (temp - temp_base["mean"]) / temp_base["std"] if temp is not None else 0.0
-    pres_z = (pres - pres_base["mean"]) / pres_base["std"] if pres is not None else 0.0
+    vib_z = (
+        (vib - vib_base["mean"]) / max(0.1, vib_base["std"])
+        if vib is not None
+        else 0.0
+    )
+    temp_z = (
+        (temp - temp_base["mean"]) / max(0.1, temp_base["std"])
+        if temp is not None
+        else 0.0
+    )
+    pres_z = (
+        (pres - pres_base["mean"]) / max(0.1, pres_base["std"])
+        if pres is not None
+        else 0.0
+    )
 
     if vib_z > 1.5:
-        reasons.append(
-            f"Vibration anomaly: {vib:.1f} mm/s is +{vib_z:.1f} std dev above nominal mean ({vib_base['mean']:.1f} mm/s)."
+        sensor_indicators.append(
+            f"Vibration is {vib_z:.1f} standard deviations above its historical baseline."
         )
     if temp_z > 1.5:
-        reasons.append(
-            f"Thermal escalation: Operating temperature reached {temp:.1f} C (+{temp_z:.1f} std dev above nominal {temp_base['mean']:.1f} C)."
+        sensor_indicators.append(
+            f"Derived temperature is {temp_z:.1f} standard deviations above its historical baseline."
         )
     if pres_z > 1.5:
-        reasons.append(
-            f"Pressure anomaly: {pres:.1f} kPa is +{pres_z:.1f} std dev above standard {pres_base['mean']:.1f} kPa."
+        sensor_indicators.append(
+            f"Pressure is {pres_z:.1f} standard deviations above its historical baseline."
         )
 
-    err_24h = int(feature_row.get("error_count_24h") or 0)
+    err_value = optional_finite_float(feature_row.get("error_count_24h"))
+    err_24h = int(err_value) if err_value is not None else 0
     if err_24h > 0:
-        reasons.append(f"Recorded {err_24h} machine error log(s) in the past 24 hours.")
+        sensor_indicators.append(
+            f"{err_24h} machine error log(s) were recorded in the prior 24 hours."
+        )
 
     maint_hours = feature_row.get("maintenance_time_since_last_hours")
     if maint_hours is not None and pd.notna(maint_hours):
         maint_days = round(float(maint_hours) / 24.0, 1)
         if maint_days > 45:
-            reasons.append(f"Component wear: {maint_days} days ({maint_hours:.0f} hours) elapsed since last scheduled overhaul.")
+            sensor_indicators.append(
+                f"{maint_days} days have elapsed since the last recorded maintenance event."
+            )
 
-    if not reasons:
-        reasons.append("Machine telemetry exhibits nominal operation with minor baseline variance.")
+    if not sensor_indicators:
+        sensor_indicators.append(
+            "No configured sensor-deviation indicator exceeded its reporting threshold."
+        )
 
     comp_name = COMPONENT_NAMES.get(component, component)
     downtime_hours = COMPONENT_DOWNTIME_HOURS.get(component, 8.0)
-
-    if probability >= 0.70 or rul_hours <= 24.0:
-        iso_info = ISO_MAINTENANCE_RULES["CRITICAL"]
-        summary = (
-            f"ISO ZONE D CRITICAL ALERT for Machine {machine_id}: Model predicts {probability*100:.1f}% failure probability "
-            f"with Remaining Useful Life of ~{rul_hours:.1f} hours. "
-            f"Primary failure risk: {comp_name} ({component}), risking {downtime_hours} hours of factory downtime. "
-            f"{iso_info['action']}"
-        )
-    elif probability >= 0.40 or rul_hours <= 72.0:
-        iso_info = ISO_MAINTENANCE_RULES["HIGH"]
-        summary = (
-            f"ISO ZONE C PREVENTIVE ALERT for Machine {machine_id}: Degradation detected with {probability*100:.1f}% risk "
-            f"within 24–48 hours (estimated RUL: {rul_hours:.1f} hrs). "
-            f"{iso_info['action']}"
-        )
-    elif probability >= 0.15 or rul_hours <= 168.0:
-        iso_info = ISO_MAINTENANCE_RULES["MEDIUM"]
-        summary = (
-            f"ISO ZONE B SURVEILLANCE for Machine {machine_id}: Minor degradation detected ({probability*100:.1f}% risk, RUL {rul_hours:.1f} hrs). "
-            f"{iso_info['action']}"
-        )
-    else:
-        iso_info = ISO_MAINTENANCE_RULES["LOW"]
-        summary = (
-            f"ISO ZONE A NOMINAL for Machine {machine_id}: Operating within routine tolerance (Health: {feature_row.get('health_score', 95)}/100). "
-            f"No urgent intervention required; maintain standard monitoring cycle."
-        )
-
-    top_features = extract_feature_contributions(feature_row, sensor_readings, probability)
+    risk_category = classify_risk(probability)
+    guidance = MAINTENANCE_GUIDANCE[risk_category]
+    maintenance_category = maintenance_category_for_risk(risk_category)
+    summary = (
+        f"Machine {machine_id}: the model estimates {probability * 100:.2f}% "
+        f"probability of a recorded failure within 24 hours ({risk_category} risk; "
+        f"{maintenance_category} recommendation). The component model predicts "
+        f"{comp_name}; this is a model prediction, not a confirmed fault. "
+        f"Estimated component downtime assumption: {downtime_hours:.1f} hours. "
+        f"RUL model output: {rul_hours:.1f} hours."
+    )
 
     return {
         "summary": summary,
-        "key_drivers": reasons,
+        "key_drivers": sensor_indicators,
+        "sensor_indicators": sensor_indicators,
         "vibration_z_score": round(float(vib_z), 2),
         "temperature_z_score": round(float(temp_z), 2),
         "pressure_z_score": round(float(pres_z), 2),
         "target_component": component,
         "target_component_name": comp_name,
         "downtime_risk_hours": downtime_hours,
-        "top_contributing_features": top_features,
-        "iso_rule_applied": iso_info,
+        "model_attribution_method": (
+            "LightGBM TreeSHAP (pred_contrib)"
+            if model_contributions
+            else "unavailable"
+        ),
+        "model_contributions": model_contributions or [],
+        "attribution_note": (
+            "Contributions are in raw model log-odds space; they are not causal effects."
+        ),
+        "maintenance_guidance": guidance,
     }
 
 
@@ -638,16 +684,12 @@ def generate_explanation(
 # MULTI-MODEL PREDICTION LOGIC
 # --------------------------------------------------
 
-def predict_feature_row(feature_row: dict[str, Any], threshold: float = 0.98) -> dict[str, Any]:
+def predict_feature_row(feature_row: dict[str, Any]) -> dict[str, Any]:
     """
     Applies imputer, Binary Classifier, RUL Regressor, and Component Classifier
     to predict whether it fails, when it fails, how severe the risk is, health score, and explanation.
     """
     check_model()
-
-    if hasattr(threshold, "default"):
-        threshold = threshold.default
-    threshold = float(threshold)
 
     input_df = pd.DataFrame([feature_row], columns=feature_columns)
     input_imputed_df = impute_missing_features(
@@ -658,64 +700,66 @@ def predict_feature_row(feature_row: dict[str, Any], threshold: float = 0.98) ->
 
     # 1. Whether machine will fail (Failure Probability in 24h)
     probability = float(model.predict_proba(input_imputed_df)[0, 1])
+    risk_category = classify_risk(probability)
+    maintenance_category = maintenance_category_for_risk(risk_category)
 
     # 2. When failure may happen (Remaining Useful Life in hours & general TTF)
     if rul_model is not None:
         predicted_rul = float(np.clip(rul_model.predict(input_imputed_df)[0], 1.0, 168.0))
-        if probability >= 0.70:
-            predicted_rul = min(predicted_rul, 24.0)
     else:
         predicted_rul = round(max(2.0, (1.0 - probability) * 72.0), 1)
 
-    general_ttf = calculate_general_ttf(predicted_rul, probability)
+    general_ttf = calculate_general_ttf(predicted_rul)
 
     # 3. How severe the risk is & which component will fail
     if component_model is not None:
         predicted_component = str(component_model.predict(input_imputed_df)[0])
     else:
-        predicted_component = "comp4" if probability > 0.8 else "comp2"
+        predicted_component = "comp2"
 
     comp_weight = COMPONENT_SEVERITY_WEIGHTS.get(predicted_component, 0.75)
-    downtime_details = estimate_downtime_breakdown(predicted_component, "CRITICAL" if probability >= 0.70 else "PREVENTIVE")
+    downtime_details = estimate_downtime_breakdown(
+        predicted_component,
+        risk_category,
+    )
     predicted_downtime = downtime_details["total_downtime_hours"]
 
-    # Risk Severity Score (0 - 100)
-    risk_severity_score = round(min(100.0, (probability * 70.0) + (comp_weight * 30.0)), 1)
-
-    # Validated Maintenance Category & Priority (ISO 17359 / ISO 10816 standards)
-    if probability >= 0.70 or risk_severity_score >= 75.0 or predicted_rul <= 24.0:
-        priority = "CRITICAL"
-        maintenance_category = "URGENT"
-        schedule_window = f"Immediate shutdown: schedule within next {max(4, int(predicted_rul))} hours"
-        recommended_action = f"Urgent inspection & {predicted_component} replacement required."
-        iso_rule = ISO_MAINTENANCE_RULES["CRITICAL"]
-    elif probability >= 0.40 or risk_severity_score >= 45.0 or predicted_rul <= 72.0:
-        priority = "HIGH"
-        maintenance_category = "PREVENTIVE"
-        schedule_window = "Schedule preventive maintenance within 24–48 hours"
-        recommended_action = f"Schedule preventive inspection for {predicted_component}."
-        iso_rule = ISO_MAINTENANCE_RULES["HIGH"]
-    elif probability >= 0.15 or risk_severity_score >= 25.0 or predicted_rul <= 168.0:
-        priority = "MEDIUM"
-        maintenance_category = "PREVENTIVE"
-        schedule_window = "Schedule within next 3–5 days"
-        recommended_action = f"Inspect {predicted_component} during next planned shift."
-        iso_rule = ISO_MAINTENANCE_RULES["MEDIUM"]
+    risk_severity_score = round(probability * 100.0, 1)
+    guidance = MAINTENANCE_GUIDANCE[risk_category]
+    if risk_category == "CRITICAL":
+        schedule_window = f"Highest priority; predicted RUL {predicted_rul:.1f} hours"
+    elif risk_category == "HIGH":
+        schedule_window = "Prioritize the next available maintenance slot"
+    elif risk_category == "MEDIUM":
+        schedule_window = "Plan inspection within available maintenance capacity"
     else:
-        priority = "LOW"
-        maintenance_category = "ROUTINE"
-        schedule_window = "Continue standard routine monitoring (Day 7+)"
-        recommended_action = "Continue routine cycle monitoring."
-        iso_rule = ISO_MAINTENANCE_RULES["LOW"]
+        schedule_window = "Routine monitoring"
+    recommended_action = (
+        f"{guidance['action']} The component model predicts {predicted_component}; "
+        "verify the fault before replacement."
+    )
 
     # Physics Sensor Readings & Runtime
-    volt = feature_row.get("volt")
-    rotate = feature_row.get("rotate")
-    pressure = feature_row.get("pressure")
-    vibration = feature_row.get("vibration")
-    temperature = calculate_temperature(volt, rotate, pressure, vibration)
+    volt = optional_finite_float(feature_row.get("volt"))
+    rotate = optional_finite_float(feature_row.get("rotate"))
+    pressure = optional_finite_float(feature_row.get("pressure"))
+    vibration = optional_finite_float(feature_row.get("vibration"))
+    temperature = (
+        calculate_temperature(volt, rotate, pressure, vibration)
+        if all(
+            value is not None and np.isfinite(value)
+            for value in (volt, rotate, pressure, vibration)
+        )
+        else None
+    )
 
-    maint_time_hours = float(feature_row.get("maintenance_time_since_last_hours") or 0.0)
+    maint_time_hours = optional_finite_float(
+        feature_row.get("maintenance_time_since_last_hours")
+    )
+    if maint_time_hours is None:
+        maint_time_hours = optional_finite_float(
+            input_imputed_df.iloc[0].get("maintenance_time_since_last_hours")
+        ) or 0.0
 
     # Sensor z-scores for health score
     vib_base = baseline_statistics.get("vibration", {"mean": 40.0, "std": 4.5})
@@ -725,7 +769,12 @@ def predict_feature_row(feature_row: dict[str, Any], threshold: float = 0.98) ->
     vib_z = (vibration - vib_base["mean"]) / vib_base["std"] if vibration is not None else 0.0
     temp_z = (temperature - temp_base["mean"]) / temp_base["std"] if temperature is not None else 0.0
     pres_z = (pressure - pres_base["mean"]) / pres_base["std"] if pressure is not None else 0.0
-    err_24h = int(feature_row.get("error_count_24h") or 0)
+    err_value = optional_finite_float(feature_row.get("error_count_24h"))
+    if err_value is None:
+        err_value = optional_finite_float(
+            input_imputed_df.iloc[0].get("error_count_24h")
+        )
+    err_24h = int(err_value) if err_value is not None else 0
 
     chi = calculate_composite_health_index(
         probability, vib_z, temp_z, pres_z, err_24h, maint_time_hours
@@ -747,9 +796,10 @@ def predict_feature_row(feature_row: dict[str, Any], threshold: float = 0.98) ->
         component=predicted_component,
         sensor_readings=sensor_dict,
         feature_row={**feature_row, "health_score": health_score},
+        model_contributions=extract_model_contributions(input_imputed_df),
     )
 
-    is_alert = bool(probability >= threshold or priority == "CRITICAL")
+    is_alert = probability >= RISK_CONFIGURATION["operational_alert_threshold"]
 
     return {
         "failure_probability_24h": round(probability, 6),
@@ -759,21 +809,23 @@ def predict_feature_row(feature_row: dict[str, Any], threshold: float = 0.98) ->
         "predicted_downtime_hours": round(predicted_downtime, 1),
         "downtime_breakdown": downtime_details,
         "risk_severity_score": risk_severity_score,
-        "risk_severity_level": priority,
+        "component_severity_weight": comp_weight,
+        "risk_severity_level": risk_category,
+        "risk_category": risk_category,
         "health_score": health_score,
         "composite_health_index": chi,
-        "maintenance_priority": priority,
+        "maintenance_priority": risk_category,
         "maintenance_category": maintenance_category,
         "recommended_schedule": schedule_window,
         "recommended_action": recommended_action,
         "predicted_component": predicted_component,
         "predicted_component_name": COMPONENT_NAMES.get(predicted_component, predicted_component),
-        "threshold": threshold,
+        "threshold": RISK_CONFIGURATION["operational_alert_threshold"],
         "alert": is_alert,
         "status": "ALERT" if is_alert else "NORMAL",
         "explanation": explanation,
-        "top_contributing_features": explanation["top_contributing_features"],
-        "iso_rule": iso_rule,
+        "model_contributions": explanation["model_contributions"],
+        "maintenance_guidance": guidance,
         "sensor_readings": sensor_dict,
     }
 
@@ -784,27 +836,58 @@ def predict_feature_row(feature_row: dict[str, Any], threshold: float = 0.98) ->
 
 @lru_cache(maxsize=1)
 def get_engineered_features() -> pd.DataFrame:
-    """Generate or load the model-aligned feature matrix with real historical data."""
+    """Generate or load the model-aligned feature matrix from historical data."""
     if not RAW_DATA.exists():
-        raise FileNotFoundError(f"Raw dataset directory not found: {RAW_DATA}")
+        logger.error("Raw dataset directory is missing: %s", RAW_DATA)
+        raise HTTPException(
+            status_code=503,
+            detail="Required historical dataset directory is unavailable.",
+        )
 
     primary_parquet = RAW_DATA / "manufacturing_features.parquet"
-    if primary_parquet.exists():
-        features = pd.read_parquet(primary_parquet)
-    elif GENERATED_FEATURES_PATH.exists():
-        features = pd.read_parquet(GENERATED_FEATURES_PATH)
-    else:
-        GENERATED_DATA.mkdir(parents=True, exist_ok=True)
-        features = build_features_from_directory(RAW_DATA, FEATURES_PATH)
-        features.to_parquet(GENERATED_FEATURES_PATH, index=False)
+    try:
+        if primary_parquet.exists():
+            features = pd.read_parquet(primary_parquet)
+        elif GENERATED_FEATURES_PATH.exists():
+            features = pd.read_parquet(GENERATED_FEATURES_PATH)
+        else:
+            GENERATED_DATA.mkdir(parents=True, exist_ok=True)
+            features = build_features_from_directory(RAW_DATA, FEATURES_PATH)
+            features.to_parquet(GENERATED_FEATURES_PATH, index=False)
+    except (OSError, ValueError, ImportError) as error:
+        logger.exception("Could not load or generate engineered features.")
+        raise HTTPException(
+            status_code=503,
+            detail="Historical features could not be loaded or generated.",
+        ) from error
 
     required_columns = ["machineID", "datetime"] + feature_columns
     missing_columns = [col for col in required_columns if col not in features.columns]
     if missing_columns:
-        raise ValueError(f"Generated feature data is missing columns: {missing_columns}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": "Generated feature data has an invalid schema.",
+                "missing_columns": missing_columns,
+            },
+        )
 
     features["datetime"] = pd.to_datetime(features["datetime"], errors="coerce")
-    features = features.dropna(subset=["machineID", "datetime"])
+    features["machineID"] = pd.to_numeric(features["machineID"], errors="coerce")
+    if features["datetime"].isna().any() or features["machineID"].isna().any():
+        logger.error("Generated feature data contains invalid timestamps or machine IDs.")
+        raise HTTPException(
+            status_code=500,
+            detail="Generated feature data contains invalid timestamps or machine IDs.",
+        )
+    if features.empty:
+        raise HTTPException(status_code=503, detail="No historical feature records are available.")
+    if features.duplicated(["datetime", "machineID"]).any():
+        logger.error("Generated feature data has duplicate machine/timestamp rows.")
+        raise HTTPException(
+            status_code=500,
+            detail="Generated feature data contains duplicate machine snapshots.",
+        )
     features = features.sort_values(["datetime", "machineID"]).reset_index(drop=True)
     return features
 
@@ -819,9 +902,29 @@ def get_simulation_timestamp_groups():
 @lru_cache(maxsize=1)
 def get_machine_metadata():
     machines_path = RAW_DATA / "cleaned_machines.csv"
-    if not machines_path.exists():
-        return {}
-    df = pd.read_csv(machines_path)
+    df = load_required_csv(
+        machines_path,
+        "cleaned_machines",
+        {"machineID", "model", "age"},
+    )
+    df["machineID"] = pd.to_numeric(df["machineID"], errors="coerce")
+    df["age"] = pd.to_numeric(df["age"], errors="coerce")
+    if (
+        df.empty
+        or df[["machineID", "age"]].isna().any().any()
+        or df["model"].isna().any()
+        or not np.equal(df["machineID"] % 1, 0).all()
+    ):
+        logger.error("cleaned_machines.csv contains invalid machine IDs or ages.")
+        raise HTTPException(
+            status_code=500,
+            detail="Machine metadata contains invalid IDs or ages.",
+        )
+    if df["machineID"].duplicated().any():
+        raise HTTPException(
+            status_code=500,
+            detail="Machine metadata contains duplicate machine IDs.",
+        )
     return {
         int(row["machineID"]): {
             "model": str(row["model"]),
@@ -835,12 +938,34 @@ def get_machine_metadata():
 @lru_cache(maxsize=1)
 def get_historical_failures_and_downtime():
     failures_path = RAW_DATA / "cleaned_failures.csv"
-    if not failures_path.exists():
-        return {}, []
-
-    failures = pd.read_csv(failures_path, parse_dates=["datetime"])
+    failures = load_required_csv(
+        failures_path,
+        "cleaned_failures",
+        {"datetime", "machineID", "failure"},
+    )
+    failures["datetime"] = pd.to_datetime(failures["datetime"], errors="coerce")
+    failures["machineID"] = pd.to_numeric(
+        failures["machineID"],
+        errors="coerce",
+    )
+    if failures[["datetime", "machineID"]].isna().any().any():
+        logger.error("cleaned_failures.csv contains invalid timestamps or machine IDs.")
+        raise HTTPException(
+            status_code=500,
+            detail="Failure history contains invalid timestamps or machine IDs.",
+        )
+    unknown_components = set(failures["failure"].dropna()).difference(COMPONENT_DOWNTIME_HOURS)
+    if failures["failure"].isna().any() or unknown_components:
+        logger.error(
+            "Failure history contains unknown components: %s",
+            sorted(map(str, unknown_components)),
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Failure history contains unknown component labels.",
+        )
     failures["datetime_str"] = failures["datetime"].dt.strftime("%Y-%m-%d %H:%M:%S")
-    failures["downtime_hours"] = failures["failure"].map(COMPONENT_DOWNTIME_HOURS).fillna(6.0)
+    failures["downtime_hours"] = failures["failure"].map(COMPONENT_DOWNTIME_HOURS)
 
     machine_downtime = {}
     for mid, group in failures.groupby("machineID"):
@@ -860,12 +985,37 @@ def get_historical_failures_and_downtime():
     return machine_downtime, failures
 
 
+@lru_cache(maxsize=1)
+def get_maintenance_events() -> pd.DataFrame:
+    events = load_required_csv(
+        RAW_DATA / "cleaned_maintenance.csv",
+        "cleaned_maintenance",
+        {"datetime", "machineID", "comp"},
+    )
+    events["datetime"] = pd.to_datetime(events["datetime"], errors="coerce")
+    events["machineID"] = pd.to_numeric(events["machineID"], errors="coerce")
+    if events[["datetime", "machineID"]].isna().any().any():
+        logger.error("cleaned_maintenance.csv contains invalid timestamps or machine IDs.")
+        raise HTTPException(
+            status_code=500,
+            detail="Maintenance history contains invalid timestamps or machine IDs.",
+        )
+    return events
+
+
+def machines_with_maintenance_at(timestamp: pd.Timestamp) -> set[int]:
+    events = get_maintenance_events()
+    at_timestamp = events.loc[events["datetime"] == timestamp, "machineID"]
+    return {int(machine_id) for machine_id in at_timestamp}
+
+
 # --------------------------------------------------
 # SIMULATION SNAPSHOT BUILDER
 # --------------------------------------------------
 
 def build_simulation_snapshot(position: int, machines_per_day: int):
     check_model()
+    validate_machines_per_day(machines_per_day)
     timestamp_groups = get_simulation_timestamp_groups()
 
     if position < 0 or position >= len(timestamp_groups):
@@ -888,6 +1038,14 @@ def build_simulation_snapshot(position: int, machines_per_day: int):
         imputer_statistics,
     )
     probabilities = model.predict_proba(snapshot_features)[:, 1]
+    model_contributions = None
+    try:
+        model_contributions = model.booster_.predict(
+            snapshot_features,
+            pred_contrib=True,
+        )
+    except Exception:
+        logger.exception("Could not calculate replay feature contributions.")
 
     if rul_model is not None:
         predicted_ruls = np.clip(rul_model.predict(snapshot_features), 1.0, 168.0)
@@ -904,7 +1062,7 @@ def build_simulation_snapshot(position: int, machines_per_day: int):
     pres_base = baseline_statistics.get("pressure", {"mean": 100.0, "std": 10.0})
 
     machines = []
-    total_prevented_downtime = 0.0
+    maintenance_at_snapshot = machines_with_maintenance_at(pd.Timestamp(timestamp))
 
     for idx, (row, prob, rul, comp) in enumerate(zip(snapshot.to_dict("records"), probabilities, predicted_ruls, predicted_comps)):
         machine_id = int(row["machineID"])
@@ -912,67 +1070,97 @@ def build_simulation_snapshot(position: int, machines_per_day: int):
         rul = float(rul)
         comp = str(comp)
 
-        if prob >= 0.85:
-            rul = min(rul, 24.0)
-
-        meta = machine_meta.get(machine_id, {"model": "model1", "age": 10, "line": "Line 1"})
+        meta = machine_meta.get(machine_id)
+        if meta is None:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Machine {machine_id} is missing from machine metadata.",
+            )
         dt_info = machine_downtime_dict.get(machine_id, {"failure_count": 0, "total_downtime_hours": 0.0, "events": []})
 
         # Physical Sensor Readings
-        volt = float(row["volt"]) if pd.notna(row["volt"]) else 170.0
-        rotate = float(row["rotate"]) if pd.notna(row["rotate"]) else 446.0
-        pressure = float(row["pressure"]) if pd.notna(row["pressure"]) else 100.0
-        vibration = float(row["vibration"]) if pd.notna(row["vibration"]) else 40.0
-        temperature = calculate_temperature(volt, rotate, pressure, vibration)
+        volt = optional_finite_float(row["volt"])
+        rotate = optional_finite_float(row["rotate"])
+        pressure = optional_finite_float(row["pressure"])
+        vibration = optional_finite_float(row["vibration"])
+        temperature = (
+            calculate_temperature(volt, rotate, pressure, vibration)
+            if all(
+                value is not None and np.isfinite(value)
+                for value in (volt, rotate, pressure, vibration)
+            )
+            else None
+        )
 
         # Runtime
         elapsed_hours = max(0.0, (timestamp - pd.Timestamp("2015-01-01 06:00:00")).total_seconds() / 3600.0)
         total_runtime_hours = round((meta["age"] * 8760.0) + elapsed_hours, 1)
-        runtime_since_maint = float(row.get("maintenance_time_since_last_hours") or 0.0)
+        recorded_runtime_since_maint = optional_finite_float(
+            row.get("maintenance_time_since_last_hours")
+        )
+        runtime_since_maint_for_health = recorded_runtime_since_maint
+        if runtime_since_maint_for_health is None:
+            runtime_since_maint_for_health = optional_finite_float(
+                snapshot_features.iloc[idx].get(
+                    "maintenance_time_since_last_hours"
+                )
+            ) or 0.0
 
         # Health score & Composite Health Index
-        vib_z = (vibration - vib_base["mean"]) / vib_base["std"]
-        temp_z = (temperature - temp_base["mean"]) / temp_base["std"]
-        pres_z = (pressure - pres_base["mean"]) / pres_base["std"]
-        err_24h = int(row.get("error_count_24h") or 0)
+        vib_z = (
+            (vibration - vib_base["mean"]) / vib_base["std"]
+            if vibration is not None
+            else 0.0
+        )
+        temp_z = (
+            (temperature - temp_base["mean"]) / temp_base["std"]
+            if temperature is not None
+            else 0.0
+        )
+        pres_z = (
+            (pressure - pres_base["mean"]) / pres_base["std"]
+            if pressure is not None
+            else 0.0
+        )
+        error_value = optional_finite_float(row.get("error_count_24h"))
+        if error_value is None:
+            error_value = optional_finite_float(
+                snapshot_features.iloc[idx].get("error_count_24h")
+            )
+        err_24h = int(error_value) if error_value is not None else 0
 
-        chi = calculate_composite_health_index(prob, vib_z, temp_z, pres_z, err_24h, runtime_since_maint)
+        chi = calculate_composite_health_index(
+            prob,
+            vib_z,
+            temp_z,
+            pres_z,
+            err_24h,
+            runtime_since_maint_for_health,
+        )
         health_score = chi["health_score"]
 
         comp_downtime = COMPONENT_DOWNTIME_HOURS.get(comp, 8.0)
         comp_weight = COMPONENT_SEVERITY_WEIGHTS.get(comp, 0.75)
-        severity_score = round(min(100.0, (prob * 70.0) + (comp_weight * 30.0)), 1)
+        severity_score = round(prob * 100.0, 1)
 
-        general_ttf = calculate_general_ttf(rul, prob)
+        general_ttf = calculate_general_ttf(rul)
+        priority = classify_risk(prob)
+        maint_cat = maintenance_category_for_risk(priority)
+        alert = prob >= RISK_CONFIGURATION["operational_alert_threshold"]
+        guidance = MAINTENANCE_GUIDANCE[priority]
 
-        priority = next(
-            (label for minimum, label in SIMULATION_RISK_BANDS if prob >= minimum),
-            "LOW",
-        )
-        alert = bool(prob >= SIMULATION_RISK_BANDS[0][0])
-
-        if priority == "CRITICAL" or rul <= 24.0:
-            maint_cat = "URGENT"
-            action = f"Urgent inspection & {comp} replacement required before failure."
-            sched_window = f"Immediate shutdown: within {max(4, int(rul))} hrs"
-            iso_rule = ISO_MAINTENANCE_RULES["CRITICAL"]
-            total_prevented_downtime += comp_downtime
-        elif priority == "HIGH" or rul <= 72.0:
-            maint_cat = "PREVENTIVE"
-            action = f"Schedule preventive service for {comp} within 24–48 hours."
-            sched_window = "Schedule within 24–48 hours"
-            iso_rule = ISO_MAINTENANCE_RULES["HIGH"]
-            total_prevented_downtime += comp_downtime * 0.7
+        if priority == "CRITICAL":
+            action = f"Prioritize qualified inspection of model-predicted {comp}; verify before replacement."
+            sched_window = f"Highest priority; predicted RUL {rul:.1f} hours"
+        elif priority == "HIGH":
+            action = f"Prioritize inspection of model-predicted {comp}; verify before replacement."
+            sched_window = "Prioritize the next available maintenance slot"
         elif priority == "MEDIUM":
-            maint_cat = "PREVENTIVE"
-            action = f"Schedule inspection for {comp} during upcoming shift."
-            sched_window = "Schedule in 3–5 days"
-            iso_rule = ISO_MAINTENANCE_RULES["MEDIUM"]
+            action = f"Plan an inspection of model-predicted {comp}; verify before replacement."
+            sched_window = "Plan inspection within available maintenance capacity"
         else:
-            maint_cat = "ROUTINE"
-            action = "Continue routine cycle monitoring."
-            sched_window = "Routine cycle (Day 7+)"
-            iso_rule = ISO_MAINTENANCE_RULES["LOW"]
+            action = "Continue routine monitoring; no risk-band-triggered work order."
+            sched_window = "Routine monitoring"
 
         downtime_details = estimate_downtime_breakdown(comp, priority)
 
@@ -991,6 +1179,11 @@ def build_simulation_snapshot(position: int, machines_per_day: int):
             component=comp,
             sensor_readings=sensor_readings,
             feature_row={**row, "health_score": health_score},
+            model_contributions=extract_model_contributions(
+                snapshot_features,
+                idx,
+                model_contributions,
+            ) if model_contributions is not None else [],
         )
 
         machine_models = get_machine_models()
@@ -1003,6 +1196,7 @@ def build_simulation_snapshot(position: int, machines_per_day: int):
             "production_line": meta["line"],
             "snapshot_datetime": timestamp.isoformat(),
             "priority": priority,
+            "risk_category": priority,
             "maintenance_category": maint_cat,
             "rank": 0,
             "failure_probability_24h": round(prob, 4),
@@ -1013,6 +1207,7 @@ def build_simulation_snapshot(position: int, machines_per_day: int):
             "predicted_component": comp,
             "predicted_component_name": COMPONENT_NAMES.get(comp, comp),
             "risk_severity_score": severity_score,
+            "component_severity_weight": comp_weight,
             "health_score": health_score,
             "composite_health_index": chi,
             "alert": alert,
@@ -1020,14 +1215,23 @@ def build_simulation_snapshot(position: int, machines_per_day: int):
             "recommended_action": action,
             "reason": explanation["summary"],
             "flagged_drivers": explanation["key_drivers"],
-            "top_contributing_features": explanation["top_contributing_features"],
-            "iso_rule": iso_rule,
+            "model_contributions": explanation["model_contributions"],
+            "maintenance_guidance": guidance,
             "sensor_readings": sensor_readings,
             "runtime_hours": total_runtime_hours,
-            "runtime_since_maintenance_hours": round(runtime_since_maint, 1),
+            "runtime_since_maintenance_hours": (
+                round(recorded_runtime_since_maint, 1)
+                if recorded_runtime_since_maint is not None
+                else None
+            ),
             "historical_failure_count": dt_info["failure_count"],
             "historical_total_downtime_hours": dt_info["total_downtime_hours"],
             "recent_error_count_24h": err_24h,
+            "maintenance_status": (
+                "MAINTENANCE_RECORDED_AT_SNAPSHOT"
+                if machine_id in maintenance_at_snapshot
+                else "NOT_RECORDED_AT_SNAPSHOT"
+            ),
         })
 
     # Rank machines by failure probability and risk severity (who needs attention first)
@@ -1046,11 +1250,29 @@ def build_simulation_snapshot(position: int, machines_per_day: int):
     preventive_count = sum(m["maintenance_category"] == "PREVENTIVE" for m in machines)
     routine_count = sum(m["maintenance_category"] == "ROUTINE" for m in machines)
 
-    attention_machines = [m for m in machines if m["priority"] != "LOW"]
+    attention_machines = [
+        machine
+        for machine in machines
+        if machine["priority"] != "LOW"
+        and machine["maintenance_status"] != "MAINTENANCE_RECORDED_AT_SNAPSHOT"
+    ]
     avg_health = round(float(np.mean([m["health_score"] for m in machines])), 1)
 
-    schedule = [
-        {
+    schedule = []
+    for index, machine in enumerate(attention_machines):
+        day_offset = index // machines_per_day
+        slot_in_day = index % machines_per_day
+        shift_index = slot_in_day % len(SHIFT_CALENDAR)
+        slot_start_hours = day_offset * 24 + shift_index * 8
+        repair_duration = COMPONENT_DOWNTIME_HOURS.get(
+            machine["predicted_component"],
+            8.0,
+        )
+        feasible = (
+            slot_start_hours + repair_duration
+            <= machine["predicted_rul_hours"]
+        )
+        schedule.append({
             "machineID": machine["machineID"],
             "model": machine["model"],
             "production_line": machine["production_line"],
@@ -1058,16 +1280,24 @@ def build_simulation_snapshot(position: int, machines_per_day: int):
             "maintenance_category": machine["maintenance_category"],
             "probability_24h": machine["failure_probability_24h"],
             "predicted_rul_hours": machine["predicted_rul_hours"],
-            "predicted_downtime_hours": machine["predicted_downtime_hours"],
+            "predicted_downtime_hours": repair_duration,
             "target_component": machine["predicted_component"],
-            "allocation_label": f"Day {(index // machines_per_day) + 1}",
-            "daily_slot": (index % machines_per_day) + 1,
+            "predicted_component_name": machine["predicted_component_name"],
+            "flagged_drivers": machine["flagged_drivers"],
+            "allocation_label": f"Day {day_offset + 1}",
+            "daily_slot": slot_in_day + 1,
             "inspection_rank": index + 1,
+            "slot_start_hours_from_snapshot": slot_start_hours,
+            "status": "SCHEDULED" if feasible else "INFEASIBLE",
+            "is_feasible_before_predicted_failure": feasible,
             "recommended_schedule": machine["recommended_schedule"],
             "recommended_action": machine["recommended_action"],
-        }
-        for index, machine in enumerate(attention_machines)
-    ]
+            "scheduling_reason": (
+                f"Ranked {machine['priority']} by the configured failure-probability band; "
+                f"slot starts in {slot_start_hours} hours and estimated task duration "
+                f"is {repair_duration:g} hours."
+            ),
+        })
 
     return {
         "mode": "simulated_production_line_replay",
@@ -1078,13 +1308,8 @@ def build_simulation_snapshot(position: int, machines_per_day: int):
             "percentage": round(((position + 1) / len(timestamp_groups)) * 100, 2),
             "complete": position + 1 == len(timestamp_groups),
         },
-        "risk_bands": {
-            "CRITICAL": 0.85,
-            "HIGH": 0.60,
-            "MEDIUM": 0.35,
-            "LOW": 0.00,
-        },
-        "iso_rules": ISO_MAINTENANCE_RULES,
+        "risk_configuration": RISK_CONFIGURATION,
+        "maintenance_guidance": MAINTENANCE_GUIDANCE,
         "overview": {
             "total_machines": len(machines),
             "average_health_score": avg_health,
@@ -1096,7 +1321,6 @@ def build_simulation_snapshot(position: int, machines_per_day: int):
             "preventive": preventive_count,
             "routine": routine_count,
             "alerts": sum(m["alert"] for m in machines),
-            "total_prevented_downtime_hours": round(total_prevented_downtime, 1),
         },
         "capacity": {
             "machines_per_day": machines_per_day,
@@ -1118,7 +1342,7 @@ def build_simulation_snapshot(position: int, machines_per_day: int):
 @app.get("/")
 def home():
     return {
-        "message": "AI-Driven Manufacturing Optimization API",
+        "message": "Historical Predictive-Maintenance Prototype API",
         "version": "2.5.0",
         "docs": "/docs",
         "status": "ready",
@@ -1139,7 +1363,13 @@ def health():
         "component_model_loaded": component_model is not None,
         "feature_count": len(feature_columns),
         "model_error": model_load_error,
+        "risk_configuration": RISK_CONFIGURATION,
     }
+
+
+@app.get("/api/risk-config")
+def risk_config():
+    return RISK_CONFIGURATION
 
 
 @app.get("/api/model/health")
@@ -1152,6 +1382,7 @@ def model_health():
         "feature_count": len(feature_columns),
         "prediction_endpoint": "/api/predict/machine/{machine_id}",
         "feature_generation": "automatic",
+        "risk_configuration": RISK_CONFIGURATION,
     }
 
 
@@ -1169,12 +1400,12 @@ def overview():
     total_downtime = sum(m["total_downtime_hours"] for m in machine_downtime_dict.values())
 
     return {
-        "total_machines": len(df) if not df.empty else 100,
+        "total_machines": int(df["machineID"].nunique()) if "machineID" in df else 0,
         "critical": int(counts.get("CRITICAL", 0)),
         "high": int(counts.get("HIGH", 0)),
         "medium": int(counts.get("MEDIUM", 0)),
         "low": int(counts.get("LOW", 0)),
-        "average_health_score": 88.4,
+        "average_health_score": None,
         "total_historical_failures": total_failures,
         "total_historical_downtime_hours": round(total_downtime, 1),
         "capacity_scenarios": rows(read_csv("capacity")),
@@ -1185,12 +1416,16 @@ def overview():
 @app.get("/api/historical_trends")
 def historical_trends():
     """
-    Returns real monthly historical failure trends and downtime history
-    broken down by component and month across 2015.
+    Returns monthly historical failure trends and downtime assumptions.
     """
     _, failures = get_historical_failures_and_downtime()
     if failures.empty:
-        return {"monthly_trends": [], "component_breakdown": {}}
+        return {
+            "monthly_trends": [],
+            "component_summary": {},
+            "total_failures": 0,
+            "total_downtime_hours": 0.0,
+        }
 
     failures["month_name"] = failures["datetime"].dt.strftime("%b %Y")
     failures["month_idx"] = failures["datetime"].dt.month
@@ -1210,19 +1445,15 @@ def historical_trends():
         cum_failures += month_total
         cum_downtime += month_downtime
 
-        # Downtime prevented: assuming predictive maintenance scheduled repair takes ~2h instead of emergency downtime
-        downtime_prevented = round(max(0.0, month_downtime - (month_total * 2.0)), 1)
-
         monthly_data.append({
             "month": m_name,
-            "month_idx": m_idx,
+            "month_idx": int(m_idx),
             "comp1": c1,
             "comp2": c2,
             "comp3": c3,
             "comp4": c4,
             "total_failures": month_total,
             "downtime_hours": month_downtime,
-            "downtime_prevented_hours": downtime_prevented,
             "cumulative_failures": cum_failures,
             "cumulative_downtime_hours": round(cum_downtime, 1),
         })
@@ -1241,12 +1472,12 @@ def historical_trends():
             "severity_weight": COMPONENT_SEVERITY_WEIGHTS[comp],
         }
 
-    return {
+    return to_json_safe({
         "monthly_trends": monthly_data,
         "component_summary": component_summary,
         "total_failures": len(failures),
         "total_downtime_hours": round(float(failures["downtime_hours"].sum()), 1),
-    }
+    })
 
 
 @app.get("/api/production_lines")
@@ -1279,14 +1510,13 @@ def production_lines():
     for line_name, m_list in lines.items():
         crit = sum(1 for m in m_list if m["priority"] == "CRITICAL")
         high = sum(1 for m in m_list if m["priority"] == "HIGH")
-        line_health = 96.0 - (crit * 15.0) - (high * 5.0)
         line_summaries.append({
             "line_name": line_name,
             "machine_count": len(m_list),
             "critical_count": crit,
             "high_count": high,
-            "health_score": max(50.0, round(line_health, 1)),
-            "status": "ATTENTION_REQUIRED" if crit > 0 else "NORMAL",
+            "health_score": None,
+            "status": "SAVED_PRIORITY_ARTIFACT_NOT_LIVE_HEALTH",
             "machines": m_list,
         })
 
@@ -1302,16 +1532,16 @@ def simulation_scenarios():
         "scenarios": [
             {
                 "id": "critical_bearing_event",
-                "name": "Impending Bearing Breakdown (Machine 56 & 14)",
-                "description": "High vibration and thermal escalation triggering URGENT alerts and immediate dispatch.",
+                "name": "High-Risk Replay Snapshot (Machine 56 & 14)",
+                "description": "Historical position for demonstrating model predictions; not a confirmed impending breakdown.",
                 "target_position": 450,
                 "target_datetime": "2015-01-20 00:00:00",
                 "scenario_type": "breakdown",
             },
             {
                 "id": "thermal_heatwave",
-                "name": "Thermal Stress & Shaft Friction Scenario",
-                "description": "Production line operating under elevated thermal and vibration stress.",
+                "name": "Elevated Sensor Replay Snapshot",
+                "description": "Historical position for inspecting recorded sensor values and model output.",
                 "target_position": 1200,
                 "target_datetime": "2015-02-20 06:00:00",
                 "scenario_type": "stress",
@@ -1332,6 +1562,7 @@ def simulation_scenarios():
 def load_simulation_scenario(scenario_id: str, machines_per_day: int = 5):
     """Jump the simulation directly to a specific factory scenario state."""
     global simulation_position
+    validate_machines_per_day(machines_per_day)
 
     scenarios_map = {
         "critical_bearing_event": 450,
@@ -1349,16 +1580,27 @@ def load_simulation_scenario(scenario_id: str, machines_per_day: int = 5):
 
 
 @app.get("/api/alerts/active")
-def active_alerts(threshold: float = 0.85):
+def active_alerts():
     """
     Returns all machines currently in ALERT status crossing the risk threshold.
     """
     check_model()
     global simulation_position
 
-    pos = simulation_position if simulation_position >= 0 else 0
-    snapshot_data = build_simulation_snapshot(pos, machines_per_day=5)
-    alerting_machines = [m for m in snapshot_data["machines"] if m["failure_probability_24h"] >= threshold or m["priority"] == "CRITICAL"]
+    threshold = RISK_CONFIGURATION["operational_alert_threshold"]
+    if simulation_position < 0:
+        return {
+            "timestamp": None,
+            "threshold": threshold,
+            "alert_count": 0,
+            "alerts": [],
+        }
+
+    snapshot_data = build_simulation_snapshot(
+        simulation_position,
+        machines_per_day=5,
+    )
+    alerting_machines = [m for m in snapshot_data["machines"] if m["alert"]]
 
     return {
         "timestamp": snapshot_data["timestamp"],
@@ -1374,13 +1616,21 @@ def maintenance_report(machines_per_day: int = 5):
     Generates a structured preventive maintenance dispatch report.
     """
     check_model()
+    validate_machines_per_day(machines_per_day)
     global simulation_position
 
     pos = simulation_position if simulation_position >= 0 else 0
     snapshot_data = build_simulation_snapshot(pos, machines_per_day=machines_per_day)
 
-    urgent_machines = [m for m in snapshot_data["machines"] if m["maintenance_category"] == "URGENT"]
-    preventive_machines = [m for m in snapshot_data["machines"] if m["maintenance_category"] == "PREVENTIVE"]
+    scheduled_machines = snapshot_data["schedule"]
+    urgent_machines = [
+        machine for machine in scheduled_machines
+        if machine["maintenance_category"] == "URGENT"
+    ]
+    preventive_machines = [
+        machine for machine in scheduled_machines
+        if machine["maintenance_category"] == "PREVENTIVE"
+    ]
 
     return {
         "generated_at": snapshot_data["timestamp"],
@@ -1393,12 +1643,15 @@ def maintenance_report(machines_per_day: int = 5):
                 "model": m["model"],
                 "production_line": m["production_line"],
                 "priority": m["priority"],
-                "failure_probability": f"{m['failure_probability_24h']*100:.1f}%",
+                "failure_probability": f"{m['probability_24h']*100:.1f}%",
                 "predicted_rul_hours": f"{m['predicted_rul_hours']:.1f} hrs",
                 "target_component": m["predicted_component_name"],
                 "scheduled_slot": m["recommended_schedule"],
                 "action": m["recommended_action"],
                 "flagged_reasons": m["flagged_drivers"],
+                "status": m["status"],
+                "is_feasible_before_predicted_failure": m["is_feasible_before_predicted_failure"],
+                "scheduling_reason": m["scheduling_reason"],
             }
             for m in urgent_machines
         ],
@@ -1409,43 +1662,43 @@ def maintenance_report(machines_per_day: int = 5):
                 "model": m["model"],
                 "production_line": m["production_line"],
                 "priority": m["priority"],
-                "failure_probability": f"{m['failure_probability_24h']*100:.1f}%",
+                "failure_probability": f"{m['probability_24h']*100:.1f}%",
                 "predicted_rul_hours": f"{m['predicted_rul_hours']:.1f} hrs",
                 "target_component": m["predicted_component_name"],
                 "scheduled_slot": m["recommended_schedule"],
                 "action": m["recommended_action"],
+                "status": m["status"],
+                "is_feasible_before_predicted_failure": m["is_feasible_before_predicted_failure"],
+                "scheduling_reason": m["scheduling_reason"],
             }
-            for m in preventive_machines[:15]
+            for m in preventive_machines
         ],
         "dispatch_schedule": snapshot_data["schedule"],
     }
 
 
 # --------------------------------------------------
-# EMPIRICAL DOWNTIME REDUCTION & TRIAL SIMULATION
+# ASSUMPTION-BASED DOWNTIME SCENARIO
 # --------------------------------------------------
 
 @app.get("/api/trial/downtime_reduction")
 def downtime_reduction_trial():
     """
-    Measures empirical downtime reduction by simulating an operational trial
-    across the entire historical dataset (100 machines, 761 failure events):
-    Comparing Reactive (Run-to-Failure) vs AI Predictive Maintenance.
+    Compares explicitly assumed reactive and planned repair durations.
+    This is a scenario calculation, not an observed trial or validated savings estimate.
     """
     _, failures = get_historical_failures_and_downtime()
-    total_events = len(failures) if not failures.empty else 761
+    total_events = len(failures)
 
     reactive_details = []
     proactive_details = []
     reactive_total_downtime = 0.0
     proactive_total_downtime = 0.0
 
-    comp_counts = {"comp1": 0, "comp2": 0, "comp3": 0, "comp4": 0}
-    if not failures.empty:
-        for comp, count in failures["failure"].value_counts().items():
-            comp_counts[str(comp)] = int(count)
-    else:
-        comp_counts = {"comp1": 192, "comp2": 259, "comp3": 131, "comp4": 179}
+    comp_counts = {
+        comp: int(failures["failure"].eq(comp).sum())
+        for comp in ("comp1", "comp2", "comp3", "comp4")
+    }
 
     for comp, count in comp_counts.items():
         base_repair = COMPONENT_DOWNTIME_HOURS.get(comp, 8.0)
@@ -1481,18 +1734,24 @@ def downtime_reduction_trial():
     cost_savings = round(hours_saved * DOWNTIME_COST_PER_HOUR, 2)
 
     return {
+        "evidence_type": "hypothetical_scenario_not_observed_trial",
         "trial_scope": {
-            "total_monitored_machines": 100,
+            "total_monitored_machines": len(get_machine_metadata()),
             "total_historical_failure_events": total_events,
-            "evaluation_period": "365 Operating Days (Calendar Year 2015)",
-            "simulation_basis": "Empirical Azure PdM failure event logs with secondary damage & emergency logistics modeling",
+            "evaluation_period": "Period represented by the checked-in failure records",
+            "simulation_basis": "Historical event counts combined with assumed repair durations and logistics overhead",
+        },
+        "assumptions": {
+            "reactive_repair_duration": "component downtime assumption * 1.5 + 7 hours",
+            "planned_repair_duration": "component downtime assumption * 0.9",
+            "downtime_cost_per_hour_usd": DOWNTIME_COST_PER_HOUR,
+            "validated_against_observed_operational_outcomes": False,
         },
         "summary": {
             "reactive_unplanned_downtime_hours": round(reactive_total_downtime, 1),
             "predictive_planned_downtime_hours": round(proactive_total_downtime, 1),
             "downtime_hours_saved": hours_saved,
             "downtime_reduction_percentage": reduction_pct,
-            "mtbf_improvement_percentage": 42.6,
             "financial_savings_usd": cost_savings,
             "hourly_cost_basis_usd": DOWNTIME_COST_PER_HOUR,
         },
@@ -1500,7 +1759,7 @@ def downtime_reduction_trial():
             "reactive": reactive_details,
             "proactive": proactive_details,
         },
-        "operational_rules": ISO_MAINTENANCE_RULES,
+        "maintenance_guidance": MAINTENANCE_GUIDANCE,
     }
 
 
@@ -1509,11 +1768,11 @@ def downtime_reduction_trial():
 # --------------------------------------------------
 
 @app.get("/api/maintenance/schedule_realistic")
-def realistic_maintenance_schedule(machines_per_day: int = 5):
+def realistic_maintenance_schedule(
+    machines_per_day: int = Query(default=5, ge=1, le=100),
+):
     """
-    Realistic Industrial Maintenance Dispatch Schedule:
-    Allocates work orders across 3 shifts per day, assigns required technician skills,
-    estimates specific task durations, and verifies spare parts availability.
+    Capacity-limited planning proposal based on the current historical replay snapshot.
     """
     check_model()
     global simulation_position
@@ -1521,33 +1780,78 @@ def realistic_maintenance_schedule(machines_per_day: int = 5):
     snapshot = build_simulation_snapshot(pos, machines_per_day)
 
     attention_machines = [m for m in snapshot["machines"] if m["priority"] != "LOW"]
-    attention_machines.sort(key=lambda m: (-m["failure_probability_24h"], -m["risk_severity_score"], m["predicted_rul_hours"]))
+    attention_machines.sort(
+        key=lambda machine: (
+            -machine["failure_probability_24h"],
+            machine["predicted_rul_hours"],
+            machine["machineID"],
+        )
+    )
 
     scheduled_work_orders = []
+    excluded_work_orders = []
+    seen_machine_ids: set[int] = set()
     base_date = pd.Timestamp(snapshot["timestamp"])
-    current_day = 0
-    current_shift_idx = 0
+    maintenance_at_snapshot = machines_with_maintenance_at(base_date)
 
-    for idx, m in enumerate(attention_machines):
-        comp = m["predicted_component"]
+    for rank, machine in enumerate(attention_machines, start=1):
+        machine_id = machine["machineID"]
+        if machine_id in seen_machine_ids:
+            excluded_work_orders.append({
+                "machineID": machine_id,
+                "status": "DUPLICATE_RECOMMENDATION",
+                "reason": "A work order for this machine was already included.",
+            })
+            continue
+        seen_machine_ids.add(machine_id)
+
+        if machine_id in maintenance_at_snapshot:
+            excluded_work_orders.append({
+                "machineID": machine_id,
+                "status": "MAINTENANCE_RECORDED_AT_SNAPSHOT",
+                "reason": (
+                    "A maintenance event is recorded at this exact snapshot; "
+                    "no separate duration/status data is available."
+                ),
+            })
+            continue
+
+        idx = len(scheduled_work_orders)
+        day_offset = idx // machines_per_day
+        slot_in_day = idx % machines_per_day
+        shift_index = slot_in_day % len(SHIFT_CALENDAR)
+        slot_start_hours = day_offset * 24 + shift_index * 8
+        shift = SHIFT_CALENDAR[shift_index]
+        scheduled_date = base_date + pd.Timedelta(days=day_offset)
+        comp = machine["predicted_component"]
         part_info = SPARE_PARTS_INVENTORY.get(comp, {})
         skill_required = TECHNICIAN_SKILLS.get(comp, "General Electro-Mechanical Tech")
         duration = COMPONENT_DOWNTIME_HOURS.get(comp, 8.0)
-
-        shift = SHIFT_CALENDAR[current_shift_idx]
-        scheduled_date = base_date + pd.Timedelta(days=current_day)
         date_str = scheduled_date.strftime("%Y-%m-%d")
+        predicted_rul = float(machine["predicted_rul_hours"])
+        feasible = slot_start_hours + duration <= predicted_rul
+        schedule_status = "SCHEDULED" if feasible else "INFEASIBLE"
+        reason = (
+            f"Priority {machine['priority']} by failure-probability band; "
+            f"slot starts in {slot_start_hours} hours and estimated task duration "
+            f"is {duration:g} hours."
+        )
+        if not feasible:
+            reason += (
+                f" This exceeds the model RUL estimate of {predicted_rul:g} hours; "
+                "the allocation is overdue/infeasible, not a safe intervention."
+            )
 
         scheduled_work_orders.append({
-            "work_order_id": f"WO-{scheduled_date.strftime('%y%m%d')}-{m['machineID']:03d}",
-            "machineID": m["machineID"],
-            "production_line": m["production_line"],
-            "model": m["model"],
-            "priority": m["priority"],
-            "maintenance_category": m["maintenance_category"],
-            "failure_probability_24h": m["failure_probability_24h"],
-            "predicted_rul_hours": m["predicted_rul_hours"],
-            "general_time_to_failure": m.get("general_time_to_failure"),
+            "work_order_id": f"WO-{scheduled_date.strftime('%y%m%d')}-{machine_id:03d}",
+            "machineID": machine_id,
+            "production_line": machine["production_line"],
+            "model": machine["model"],
+            "priority": machine["priority"],
+            "maintenance_category": machine["maintenance_category"],
+            "failure_probability_24h": machine["failure_probability_24h"],
+            "predicted_rul_hours": predicted_rul,
+            "general_time_to_failure": machine.get("general_time_to_failure"),
             "failing_component": comp,
             "failing_component_name": COMPONENT_NAMES.get(comp, comp),
             "allocated_date": date_str,
@@ -1560,31 +1864,50 @@ def realistic_maintenance_schedule(machines_per_day: int = 5):
                 "description": part_info.get("description", "N/A"),
                 "in_stock": part_info.get("in_stock", 0),
                 "location": part_info.get("location", "Depot"),
-                "parts_status": "READY_IN_STOCK" if part_info.get("in_stock", 0) > 0 else "ORDER_EXPEDITED",
+                "parts_status": (
+                    "ASSUMED_STOCK_NOT_VERIFIED"
+                    if part_info.get("in_stock", 0) > 0
+                    else "STOCK_UNAVAILABLE_OR_UNKNOWN"
+                ),
             },
-            "recommended_action": m["recommended_action"],
+            "recommended_action": machine["recommended_action"],
+            "scheduling_rank": rank,
+            "slot_start_hours_from_snapshot": slot_start_hours,
+            "status": schedule_status,
+            "is_feasible_before_predicted_failure": feasible,
+            "scheduling_reason": reason,
         })
 
-        current_shift_idx += 1
-        if current_shift_idx >= len(SHIFT_CALENDAR):
-            current_shift_idx = 0
-            current_day += 1
+    daily_counts = pd.Series(
+        [work_order["allocated_date"] for work_order in scheduled_work_orders]
+    ).value_counts().to_dict()
+    capacity_compliant = all(
+        count <= machines_per_day for count in daily_counts.values()
+    )
+    planning_horizon_days = (
+        (len(scheduled_work_orders) + machines_per_day - 1) // machines_per_day
+    )
 
     return {
         "timestamp": snapshot["timestamp"],
         "total_work_orders": len(scheduled_work_orders),
-        "planning_horizon_days": current_day + 1,
+        "machines_per_day": machines_per_day,
+        "planning_horizon_days": planning_horizon_days,
+        "capacity_compliant": capacity_compliant,
+        "daily_work_order_counts": daily_counts,
         "shift_definitions": SHIFT_CALENDAR,
         "spare_parts_inventory": SPARE_PARTS_INVENTORY,
+        "spare_parts_source": "Static illustrative assumptions; not connected to a warehouse system.",
         "technician_skills_matrix": TECHNICIAN_SKILLS,
+        "technician_availability_source": "Required skill labels only; workforce availability is not integrated.",
         "work_orders": scheduled_work_orders,
+        "unscheduled_work_orders": excluded_work_orders,
     }
 
 @app.get("/api/predict/machine/{machine_id}")
 def predict_machine(
     machine_id: int,
     as_of: str | None = Query(default=None, description="Optional timestamp filter."),
-    threshold: float = Query(default=0.98, ge=0, le=1),
 ):
     """
     Predict 24-hour failure risk, RUL, severity, health score, and explanation for a machine.
@@ -1612,9 +1935,14 @@ def predict_machine(
         feature_row = snapshot[feature_columns].to_dict()
         feature_row["machineID"] = machine_id
 
-        prediction = predict_feature_row(feature_row, threshold)
+        prediction = predict_feature_row(feature_row)
 
-        meta = get_machine_metadata().get(machine_id, {"model": "model1", "age": 10, "line": "Line 1"})
+        meta = get_machine_metadata().get(machine_id)
+        if meta is None:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Machine {machine_id} is missing from machine metadata.",
+            )
         dt_info, _ = get_historical_failures_and_downtime()
         m_dt = dt_info.get(machine_id, {"failure_count": 0, "total_downtime_hours": 0.0, "events": []})
 
@@ -1630,7 +1958,9 @@ def predict_machine(
             "prediction_horizon": "24 hours",
             "prediction_type": "predictive_maintenance",
             "runtime_hours": total_runtime,
-            "runtime_since_maintenance_hours": round(float(snapshot.get("maintenance_time_since_last_hours") or 0.0), 1),
+            "runtime_since_maintenance_hours": optional_finite_float(
+                snapshot.get("maintenance_time_since_last_hours")
+            ),
             "historical_failure_count": m_dt["failure_count"],
             "historical_total_downtime_hours": m_dt["total_downtime_hours"],
             **prediction,
@@ -1650,7 +1980,6 @@ def predict_machine(
 def machine_details(
     machine_id: int,
     as_of: str | None = Query(default=None),
-    threshold: float = Query(default=0.98, ge=0, le=1),
 ):
     """Return comprehensive multi-model inference and historical records for one machine."""
     check_model()
@@ -1674,9 +2003,14 @@ def machine_details(
         feature_row = snapshot[feature_columns].to_dict()
         feature_row["machineID"] = machine_id
 
-        prediction = predict_feature_row(feature_row, threshold)
+        prediction = predict_feature_row(feature_row)
 
-        meta = get_machine_metadata().get(machine_id, {"model": "model1", "age": 10, "line": "Line 1"})
+        meta = get_machine_metadata().get(machine_id)
+        if meta is None:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Machine {machine_id} is missing from machine metadata.",
+            )
         dt_dict, _ = get_historical_failures_and_downtime()
         m_dt = dt_dict.get(machine_id, {"failure_count": 0, "total_downtime_hours": 0.0, "events": []})
 
@@ -1711,7 +2045,9 @@ def machine_details(
             "prediction": prediction,
             "sensor_readings": prediction["sensor_readings"],
             "runtime_hours": total_runtime,
-            "runtime_since_maintenance_hours": round(float(snapshot.get("maintenance_time_since_last_hours") or 0.0), 1),
+            "runtime_since_maintenance_hours": optional_finite_float(
+                snapshot.get("maintenance_time_since_last_hours")
+            ),
             "historical_failure_count": m_dt["failure_count"],
             "historical_total_downtime_hours": m_dt["total_downtime_hours"],
             "historical_downtime_events": m_dt["events"][:10],
@@ -1748,6 +2084,30 @@ def simulation_step(request: SimulationStepRequest):
         result = build_simulation_snapshot(next_position, request.machines_per_day)
         simulation_position = next_position
         return result
+
+
+@app.get("/api/simulation/state")
+def simulation_state(
+    machines_per_day: int = Query(default=5, ge=1, le=100),
+):
+    """Return the current in-memory replay snapshot, if one has been started."""
+    with simulation_lock:
+        if simulation_position < 0:
+            return {"position": None, "snapshot": None}
+
+        timestamp_groups = get_simulation_timestamp_groups()
+        if simulation_position >= len(timestamp_groups):
+            raise HTTPException(
+                status_code=500,
+                detail="Stored replay position is outside the available historical data.",
+            )
+        return {
+            "position": simulation_position,
+            "snapshot": build_simulation_snapshot(
+                simulation_position,
+                machines_per_day,
+            ),
+        }
 
 
 @app.post("/api/simulation/reset")
@@ -1787,7 +2147,7 @@ def predict(request: PredictionRequest):
         )
 
     try:
-        return predict_feature_row(request.features, request.threshold)
+        return predict_feature_row(request.features)
     except Exception as error:
         raise HTTPException(status_code=500, detail=f"Prediction failed: {str(error)}")
 

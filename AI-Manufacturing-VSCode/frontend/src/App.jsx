@@ -65,27 +65,24 @@ function App() {
   const [selectedMachine, setSelectedMachine] = useState(null);
   const [showReportModal, setShowReportModal] = useState(false);
   const [reportData, setReportData] = useState(null);
+  const [reportError, setReportError] = useState("");
 
   const [overview, setOverview] = useState(null);
   const [machines, setMachines] = useState([]);
   const [modelHealth, setModelHealth] = useState(null);
   const [components, setComponents] = useState([]);
-  const [schedule, setSchedule] = useState([]);
   const [failureMatches, setFailureMatches] = useState([]);
   const [historicalTrends, setHistoricalTrends] = useState(null);
   const [productionLines, setProductionLines] = useState([]);
   const [scenarios, setScenarios] = useState([]);
   const [activeScenarioId, setActiveScenarioId] = useState("continuous_replay");
   const [downtimeTrial, setDowntimeTrial] = useState(null);
-  const [realisticSchedule, setRealisticSchedule] = useState(null);
-  const [scheduleViewMode, setScheduleViewMode] = useState("realistic"); // "realistic" or "standard"
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [simulation, setSimulation] = useState(null);
   const [simulationPlaying, setSimulationPlaying] = useState(false);
   const [simulationCapacity, setSimulationCapacity] = useState(5);
-  const [alertThreshold, setAlertThreshold] = useState(0.85);
   const [audioAlertsEnabled, setAudioAlertsEnabled] = useState(false);
   const [simulationError, setSimulationError] = useState("");
 
@@ -115,25 +112,23 @@ function App() {
           machinesRes,
           modelRes,
           componentsRes,
-          scheduleRes,
           failureMatchesRes,
           trendsRes,
           linesRes,
           scenariosRes,
           trialRes,
-          realisticSchedRes,
+          replayStateRes,
         ] = await Promise.all([
           fetch(`${API_BASE}/api/overview`),
           fetch(`${API_BASE}/api/priorities`),
           fetch(`${API_BASE}/api/model/health`),
           fetch(`${API_BASE}/api/components`),
-          fetch(`${API_BASE}/api/schedule`),
           fetch(`${API_BASE}/api/failure_matches`),
           fetch(`${API_BASE}/api/historical_trends`).catch(() => ({ ok: false })),
           fetch(`${API_BASE}/api/production_lines`).catch(() => ({ ok: false })),
           fetch(`${API_BASE}/api/simulation/scenarios`).catch(() => ({ ok: false })),
           fetch(`${API_BASE}/api/trial/downtime_reduction`).catch(() => ({ ok: false })),
-          fetch(`${API_BASE}/api/maintenance/schedule_realistic`).catch(() => ({ ok: false })),
+          fetch(`${API_BASE}/api/simulation/state?machines_per_day=${simulationCapacity}`).catch(() => ({ ok: false })),
         ]);
 
         if (!overviewRes.ok || !machinesRes.ok || !modelRes.ok) {
@@ -144,14 +139,16 @@ function App() {
         const machinesData = await machinesRes.json();
         const modelData = await modelRes.json();
         const componentsData = await componentsRes.json();
-        const scheduleData = await scheduleRes.json();
         const failureMatchesData = await failureMatchesRes.json();
 
         setOverview(overviewData);
         setMachines(machinesData.items || []);
         setModelHealth(modelData);
+        if (replayStateRes.ok) {
+          const replayStateData = await replayStateRes.json();
+          if (replayStateData.snapshot) setSimulation(replayStateData.snapshot);
+        }
         setComponents(componentsData.items || []);
-        setSchedule(scheduleData.items || []);
         setFailureMatches(failureMatchesData.items || []);
 
         if (trendsRes.ok) {
@@ -169,10 +166,6 @@ function App() {
         if (trialRes.ok) {
           const trialData = await trialRes.json();
           setDowntimeTrial(trialData);
-        }
-        if (realisticSchedRes.ok) {
-          const schedData = await realisticSchedRes.json();
-          setRealisticSchedule(schedData);
         }
       } catch (err) {
         console.error("Dashboard loading error:", err);
@@ -258,12 +251,15 @@ function App() {
   async function handleOpenReport() {
     try {
       const res = await fetch(`${API_BASE}/api/maintenance/report?machines_per_day=${simulationCapacity}`);
-      if (res.ok) {
-        const data = await res.json();
-        setReportData(data);
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(typeof data.detail === "string" ? data.detail : "Could not generate the dispatch proposal.");
       }
-    } catch {
-      // ignore
+      setReportData(data);
+      setReportError("");
+    } catch (requestError) {
+      setReportData(null);
+      setReportError(requestError.message);
     }
     setShowReportModal(true);
   }
@@ -271,35 +267,13 @@ function App() {
   const displayedOverview = simulation?.overview || overview;
   const rawDisplayedMachines = simulation?.machines || machines;
 
-  // Enhance machines with default fields if not in simulation
-  const displayedMachines = useMemo(() => {
-    return rawDisplayedMachines.map((m) => {
-      const prob = Number(m.failure_probability_24h ?? (m.highest_episode_probability || 0.05));
-      const p = m.priority || "LOW";
-      const cat = m.maintenance_category || (p === "CRITICAL" ? "URGENT" : p === "HIGH" ? "PREVENTIVE" : "ROUTINE");
-      const health = m.health_score ?? (p === "CRITICAL" ? 28.5 : p === "HIGH" ? 64.0 : p === "MEDIUM" ? 78.0 : 96.2);
-      const rul = m.predicted_rul_hours ?? (prob > 0.85 ? 12.5 : prob > 0.5 ? 42.0 : 120.0);
-      const dt = m.predicted_downtime_hours ?? 8.0;
+  const alertThreshold = modelHealth?.risk_configuration?.operational_alert_threshold ?? 0.98;
 
-      return {
-        ...m,
-        failure_probability_24h: prob,
-        priority: p,
-        maintenance_category: cat,
-        health_score: health,
-        predicted_rul_hours: rul,
-        predicted_downtime_hours: dt,
-        production_line: m.production_line || `Line ${Math.floor((Number(m.machineID) - 1) / 20) + 1}`,
-      };
-    });
-  }, [rawDisplayedMachines]);
+  const displayedMachines = rawDisplayedMachines;
 
-  // Active alerting machines (crossing threshold)
   const activeAlerts = useMemo(() => {
-    return displayedMachines.filter(
-      (m) => m.failure_probability_24h >= alertThreshold || m.priority === "CRITICAL"
-    );
-  }, [displayedMachines, alertThreshold]);
+    return displayedMachines.filter((machine) => machine.alert === true);
+  }, [displayedMachines]);
 
   // Search & Filter
   const filteredMachines = useMemo(() => {
@@ -322,17 +296,7 @@ function App() {
   }, [displayedMachines, search, priorityFilter, lineFilter]);
 
   // Inspection schedule
-  const displayedSchedule = useMemo(() => {
-    if (simulation) {
-      return simulation.schedule;
-    }
-    return schedule.map((item, idx) => ({
-      ...item,
-      predicted_rul_hours: 24 + idx * 8,
-      predicted_downtime_hours: 8.0,
-      maintenance_category: item.priority === "CRITICAL" ? "URGENT" : "PREVENTIVE",
-    }));
-  }, [simulation, schedule]);
+  const displayedSchedule = simulation?.schedule || [];
 
   // Priority chart data
   const priorityData = displayedOverview
@@ -447,7 +411,7 @@ function App() {
             </button>
             <span className="live-indicator">
               <span className="status-dot" />
-              {modelHealth?.model_loaded ? "Telemetry Feed Ready" : "Backend Offline"}
+              {modelHealth?.model_loaded ? "Historical Replay Ready" : "Backend Offline"}
             </span>
           </div>
         </header>
@@ -462,7 +426,7 @@ function App() {
                 <div>
                   <strong>{activeAlerts.length} machine(s) crossed risk threshold ({Math.round(alertThreshold * 100)}%)!</strong>
                   <div style={{ fontSize: "12px", opacity: 0.9 }}>
-                    Immediate preventive inspection recommended to avert unplanned downtime.
+                    Model-based alerts from the current replay snapshot; qualified inspection is required before action.
                   </div>
                 </div>
               </div>
@@ -487,7 +451,7 @@ function App() {
               <p className="eyebrow">AI-DRIVEN PREDICTIVE MAINTENANCE</p>
               <h1>{activePage}</h1>
               <p className="subtitle">
-                Continuous failure probability estimation, Remaining Useful Life (RUL) forecasting, and priority dispatching.
+                Predictions and priority suggestions are generated for historical-data replay; this is not a live factory feed.
               </p>
             </div>
             <div className="date-label">
@@ -502,11 +466,11 @@ function App() {
               <p>
                 {simulation
                   ? `Snapshot ${simulation.timestamp} · Step ${simulation.progress.step.toLocaleString()} of ${simulation.progress.total_steps.toLocaleString()}`
-                  : "Interactive production line simulation driven strictly by the 876,100 Azure PdM factory dataset records."}
+                  : "Historical sensor replay with simulated controls; no live industrial telemetry is connected."}
               </p>
               <small>
-                Predictive Risk Threshold: <strong>{(alertThreshold * 100).toFixed(0)}%</strong> &bull;
-                Failure Likelihood, RUL, and Component Failure Severity active.
+                Operational alert threshold: <strong>{(alertThreshold * 100).toFixed(0)}%</strong> &bull;
+                Risk bands and alert threshold are configured by the backend.
               </small>
 
               {/* Scenario Preset Buttons */}
@@ -527,19 +491,6 @@ function App() {
             </div>
 
             <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
-              <label style={{ fontSize: "12px", display: "flex", flexDirection: "column" }}>
-                <span>Alert Threshold: {(alertThreshold * 100).toFixed(0)}%</span>
-                <input
-                  type="range"
-                  min="0.50"
-                  max="0.99"
-                  step="0.01"
-                  value={alertThreshold}
-                  onChange={(e) => setAlertThreshold(Number(e.target.value))}
-                  style={{ width: "120px" }}
-                />
-              </label>
-
               <label style={{ fontSize: "12px", display: "flex", flexDirection: "column" }}>
                 <span>Daily Slots</span>
                 <input
@@ -604,35 +555,35 @@ function App() {
                   <section className="stats-grid">
                     <StatCard
                       title="Total Equipment"
-                      value={displayedOverview.total_machines || 100}
-                      note="Across 5 factory production lines"
+                      value={displayedOverview.total_machines ?? "—"}
+                      note="Machines represented by the checked-in ranking data"
                       icon="▦"
                     />
                     <StatCard
                       title="Factory Health Score"
-                      value={`${displayedOverview.average_health_score || 88.4}%`}
-                      note={displayedOverview.average_health_score >= 80 ? "Nominal operating condition" : "Elevated equipment stress"}
+                      value={displayedOverview.average_health_score == null ? "Not measured" : `${displayedOverview.average_health_score}%`}
+                      note={simulation ? "Average project-defined index for this replay snapshot" : "No fleet-wide health score is calculated from saved rankings"}
                       icon="♥"
-                      color={displayedOverview.average_health_score >= 80 ? "green" : "orange"}
+                      color="blue"
                     />
                     <StatCard
                       title="Urgent Attention"
-                      value={displayedOverview.critical || activeAlerts.length}
-                      note="Requires immediate technician dispatch"
+                      value={simulation ? displayedOverview.critical : "—"}
+                      note={simulation ? "Current replay risk-band count" : "Start replay for current model predictions"}
                       icon="⚠"
                       color="red"
                     />
                     <StatCard
-                      title="Preventive Scheduled"
-                      value={displayedOverview.high || 0}
-                      note="Inspections planned in 24–48h"
+                      title="Preventive Risk Band"
+                      value={simulation ? displayedOverview.preventive : "—"}
+                      note="Current replay HIGH/MEDIUM count; not confirmed work orders"
                       icon="↗"
                       color="orange"
                     />
                     <StatCard
-                      title="Downtime Prevented"
-                      value={`${displayedOverview.total_prevented_downtime_hours || 48.0} hrs`}
-                      note="Estimated factory stoppage averted"
+                      title="Estimated Historical Downtime"
+                      value={`${overview?.total_historical_downtime_hours ?? "—"} hrs`}
+                      note="Component-duration assumption; not actual or avoided downtime"
                       icon="🛡"
                       color="blue"
                     />
@@ -642,8 +593,8 @@ function App() {
                   <section className="panel" style={{ marginTop: "20px" }}>
                     <div className="panel-heading">
                       <div>
-                        <h3>Production Line Health Status</h3>
-                        <p>5 Factory production lines (20 machines per line) with live health scores</p>
+                        <h3>Saved Machine Priority by Production Line</h3>
+                        <p>Grouping of the checked-in machine metadata and priority artifact; line health is not measured.</p>
                       </div>
                       <button className="view-button" onClick={() => setActivePage("Factory Floor")}>
                         View Floor Map →
@@ -655,8 +606,8 @@ function App() {
                         <div className="factory-line-card" key={line.line_name}>
                           <div className="factory-line-header">
                             <strong>{line.line_name}</strong>
-                            <span className={`health-pill ${getHealthClass(line.health_score)}`}>
-                              {line.health_score}% Health
+                            <span className="health-pill">
+                              {line.health_score == null ? "Health not measured" : `${line.health_score}%`}
                             </span>
                           </div>
                           <div style={{ fontSize: "12px", color: "#64748b" }}>
@@ -665,7 +616,7 @@ function App() {
                                 ⚠ {line.critical_count} critical machine(s)
                               </span>
                             ) : (
-                              <span>All 20 machines operational</span>
+                              <span>No saved CRITICAL priority</span>
                             )}
                           </div>
                           <div className="machine-mini-grid">
@@ -698,10 +649,10 @@ function App() {
                     <div className="panel">
                       <div className="panel-heading">
                         <div>
-                          <h3>Equipment Priority Distribution</h3>
-                          <p>Risk severity and maintenance prioritization</p>
+                          <h3>Machine Priority Distribution</h3>
+                          <p>{simulation ? "Current replay probability bands" : "Saved historical priority artifact"}</p>
                         </div>
-                        <span className="panel-tag">{displayedOverview.total_machines || 100} MACHINES</span>
+                        <span className="panel-tag">{displayedOverview.total_machines ?? "—"} MACHINES</span>
                       </div>
                       <div className="chart">
                         <ResponsiveContainer width="100%" height="100%">
@@ -723,8 +674,8 @@ function App() {
                     <div className="panel">
                       <div className="panel-heading">
                         <div>
-                          <h3>Factory Priority Composition</h3>
-                          <p>Breakdown across Critical, High, Medium, Low</p>
+                          <h3>Machine Priority Composition</h3>
+                          <p>{simulation ? "Current replay risk bands" : "Breakdown in saved priority data"}</p>
                         </div>
                       </div>
                       <div className="chart pie-chart">
@@ -761,11 +712,11 @@ function App() {
                   <section className="panel machine-panel" style={{ marginTop: "20px" }}>
                     <div className="panel-heading">
                       <div>
-                        <h3>Machines Requiring Attention (Top Ranked)</h3>
-                        <p>Ranked by Remaining Useful Life (RUL), Failure Probability, and Health Score</p>
+                        <h3>{simulation ? "Highest Model-Risk Machines" : "Saved Historical Machine Priorities"}</h3>
+                        <p>{simulation ? "Ordered by current failure probability and estimated RUL." : "These ranks are not fresh predictions; start replay to calculate current model risk."}</p>
                       </div>
                       <button className="view-button" onClick={() => setActivePage("Machines")}>
-                        View All 100 Machines →
+                        View All {displayedMachines.length} Machines →
                       </button>
                     </div>
 
@@ -784,8 +735,8 @@ function App() {
                 <section className="panel">
                   <div className="panel-heading">
                     <div>
-                      <h3>Interactive Factory Floor Map</h3>
-                      <p>Full 100-machine layout mapped across 5 production lines. Click any unit for deep diagnostics.</p>
+                      <h3>Machine Layout by Saved Production Line</h3>
+                      <p>Historical machine metadata grouped by line. These status colors are saved priorities, not live conditions.</p>
                     </div>
                   </div>
 
@@ -798,11 +749,11 @@ function App() {
                             <small style={{ marginLeft: "10px", color: "#64748b" }}>20 Continuous Operating Units</small>
                           </div>
                           <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-                            <span className={`health-pill ${getHealthClass(line.health_score)}`}>
-                              Health: {line.health_score}%
+                            <span className="health-pill">
+                              {line.health_score == null ? "Health not measured" : `Health: ${line.health_score}%`}
                             </span>
                             <span style={{ fontSize: "12px", color: line.critical_count > 0 ? "#dc2626" : "#16a34a" }}>
-                              {line.critical_count > 0 ? `⚠ ${line.critical_count} Alerting` : "✓ Line Healthy"}
+                              {line.critical_count > 0 ? `${line.critical_count} saved CRITICAL priority` : "No saved CRITICAL priority"}
                             </span>
                           </div>
                         </div>
@@ -843,8 +794,7 @@ function App() {
                     <div>
                       <h3>Machine Equipment Registry</h3>
                       <p>
-                        Showing {filteredMachines.length} of {displayedMachines.length} machines with health scores,
-                        operating sensor readings, and failure risk.
+                        Showing {filteredMachines.length} of {displayedMachines.length} machines. Historical priorities are available before replay predictions.
                       </p>
                     </div>
                   </div>
@@ -893,18 +843,24 @@ function App() {
                   <div className="panel-heading">
                     <div>
                       <h3>Flagged Machines & Critical Alerts</h3>
-                      <p>Equipment with elevated failure probability, active sensor anomalies, or imminent RUL.</p>
+                      <p>Model alerts at the configured threshold for the current replay snapshot.</p>
                     </div>
                     <span className="panel-tag" style={{ background: "#fee2e2", color: "#b91c1c" }}>
                       {activeAlerts.length} ACTIVE ALERTS
                     </span>
                   </div>
 
-                  <MachineTable
-                    data={activeAlerts.length > 0 ? activeAlerts : displayedMachines.filter((m) => m.priority !== "LOW")}
-                    onSelectMachine={setSelectedMachine}
-                    showExplanation
-                  />
+                  {activeAlerts.length > 0 ? (
+                    <MachineTable
+                      data={activeAlerts}
+                      onSelectMachine={setSelectedMachine}
+                      showExplanation
+                    />
+                  ) : (
+                    <p className="empty-state">
+                      No current replay alerts. Start or advance the historical replay to generate model predictions.
+                    </p>
+                  )}
                 </section>
               )}
 
@@ -915,8 +871,8 @@ function App() {
                 <section className="panel">
                   <div className="panel-heading">
                     <div>
-                      <h3>Preventive Maintenance Scheduling Engine</h3>
-                      <p>Automated priority-based inspection dispatching and workload slotting.</p>
+                      <h3>Capacity-Limited Maintenance Plan</h3>
+                      <p>Replay-based planning proposal; it does not dispatch technicians or verify plant availability.</p>
                     </div>
                     <button type="button" className="view-button" onClick={handleOpenReport}>
                       📄 Generate Dispatch Work Orders
@@ -926,29 +882,29 @@ function App() {
                   <div className="stats-grid" style={{ marginBottom: "20px" }}>
                     <StatCard
                       title="Urgent Work Orders"
-                      value={displayedMachines.filter((m) => m.maintenance_category === "URGENT").length}
-                      note="Immediate intervention before failure"
+                      value={simulation ? displayedMachines.filter((m) => m.maintenance_category === "URGENT").length : "—"}
+                      note="Current replay CRITICAL risk-band count"
                       icon="⚠"
                       color="red"
                     />
                     <StatCard
                       title="Preventive Work Orders"
-                      value={displayedMachines.filter((m) => m.maintenance_category === "PREVENTIVE").length}
-                      note="Scheduled within 24–48 hours"
+                      value={simulation ? displayedMachines.filter((m) => m.maintenance_category === "PREVENTIVE").length : "—"}
+                      note="Current replay HIGH/MEDIUM risk-band count"
                       icon="⚙"
                       color="orange"
                     />
                     <StatCard
                       title="Technician Capacity"
                       value={`${simulationCapacity} units/day`}
-                      note={`Estimated planning time: ${Math.ceil(displayedSchedule.length / simulationCapacity)} days`}
+                      note={`Replay plan horizon: ${simulation?.capacity?.estimated_planning_days ?? "—"} days`}
                       icon="⏱"
                       color="blue"
                     />
                     <StatCard
-                      title="Factory Downtime Prevented"
-                      value={`${displayedSchedule.reduce((sum, item) => sum + Number(item.predicted_downtime_hours || 8), 0).toFixed(0)} hrs`}
-                      note="Cumulative downtime averted"
+                      title="Assumed Repair Duration"
+                      value={simulation ? `${displayedSchedule.reduce((sum, item) => sum + Number(item.predicted_downtime_hours || 0), 0).toFixed(0)} hrs` : "—"}
+                      note="Component-duration assumptions; not downtime avoided"
                       icon="🛡"
                       color="green"
                     />
@@ -958,7 +914,7 @@ function App() {
                     <table>
                       <thead>
                         <tr>
-                          <th>Schedule Slot</th>
+                          <th>Proposed Slot</th>
                           <th>Rank</th>
                           <th>Machine ID</th>
                           <th>Line</th>
@@ -966,14 +922,15 @@ function App() {
                           <th>Priority</th>
                           <th>Maintenance Type</th>
                           <th>RUL (Hrs)</th>
-                          <th>Predicted Downtime</th>
+                          <th>Assumed Repair Duration</th>
                           <th>Target Component</th>
+                          <th>Feasibility</th>
                           <th>Recommended Action</th>
                         </tr>
                       </thead>
                       <tbody>
                         {displayedSchedule.length === 0 ? (
-                          <tr><td colSpan="11">No machines currently require maintenance intervention.</td></tr>
+                          <tr><td colSpan="12">{simulation ? "No non-LOW risk machines require a proposed inspection at this snapshot." : "No model-generated schedule is shown until a replay snapshot is active."}</td></tr>
                         ) : (
                           displayedSchedule.map((item, idx) => (
                             <tr
@@ -987,7 +944,7 @@ function App() {
                               <td><strong>{item.allocation_label || `Day ${Math.floor(idx / simulationCapacity) + 1}`} &bull; Slot {item.daily_slot || (idx % simulationCapacity) + 1}</strong></td>
                               <td>#{item.inspection_rank || idx + 1}</td>
                               <td>Machine {item.machineID}</td>
-                              <td>{item.production_line || "Line 1"}</td>
+                              <td>{item.production_line || "—"}</td>
                               <td>{item.model}</td>
                               <td>
                                 <span className={`priority ${item.priority.toLowerCase()}`}>
@@ -999,10 +956,11 @@ function App() {
                                   {item.maintenance_category || "PREVENTIVE"}
                                 </span>
                               </td>
-                              <td><strong>{Number(item.predicted_rul_hours || 24).toFixed(1)} hrs</strong></td>
-                              <td>{Number(item.predicted_downtime_hours || 8).toFixed(1)} hrs</td>
-                              <td>{item.target_component || item.component_inspection_focus || "comp4"}</td>
-                              <td>{item.recommended_action || "Schedule preventive inspection."}</td>
+                              <td><strong>{item.predicted_rul_hours == null ? "—" : `${Number(item.predicted_rul_hours).toFixed(1)} hrs`}</strong></td>
+                              <td>{item.predicted_downtime_hours == null ? "—" : `${Number(item.predicted_downtime_hours).toFixed(1)} hrs`}</td>
+                              <td>{item.target_component || item.component_inspection_focus || "—"}</td>
+                              <td title={item.scheduling_reason}>{item.status || "Not evaluated"}</td>
+                              <td>{item.recommended_action || "—"}</td>
                             </tr>
                           ))
                         )}
@@ -1019,30 +977,30 @@ function App() {
                 <>
                   <section className="stats-grid">
                     <StatCard
-                      title="Measured Downtime Reduction"
-                      value={`${downtimeTrial?.summary?.downtime_reduction_percentage || 62.8}%`}
-                      note={`${downtimeTrial?.summary?.downtime_hours_saved || 8791} hrs unplanned downtime averted`}
+                      title="Scenario Downtime Difference"
+                      value={downtimeTrial?.summary?.downtime_reduction_percentage == null ? "—" : `${downtimeTrial.summary.downtime_reduction_percentage}%`}
+                      note="Calculated from assumed repair durations; not measured savings"
                       icon="📉"
                       color="green"
                     />
                     <StatCard
-                      title="Financial Savings Measured"
-                      value={`$${((downtimeTrial?.summary?.financial_savings_usd || 21978500) / 1000000).toFixed(2)}M`}
-                      note={`At $${downtimeTrial?.summary?.hourly_cost_basis_usd || 2500}/hr throughput rate`}
+                      title="Scenario Cost Difference"
+                      value={downtimeTrial?.summary?.financial_savings_usd == null ? "—" : `$${(downtimeTrial.summary.financial_savings_usd / 1000000).toFixed(2)}M`}
+                      note={`Assumed rate: $${downtimeTrial?.summary?.hourly_cost_basis_usd ?? "—"}/hr`}
                       icon="💰"
                       color="blue"
                     />
                     <StatCard
-                      title="MTBF Improvement"
-                      value={`+${downtimeTrial?.summary?.mtbf_improvement_percentage || 42.6}%`}
-                      note="Mean Time Between Failures extended"
+                      title="Operational MTBF Effect"
+                      value="Not evaluated"
+                      note="No observed deployment outcomes are available"
                       icon="⏱"
                       color="orange"
                     />
                     <StatCard
                       title="Trial Scope Evaluated"
-                      value={`${downtimeTrial?.trial_scope?.total_historical_failure_events || 761} Events`}
-                      note="100 machines across 365 calendar days"
+                      value={`${downtimeTrial?.trial_scope?.total_historical_failure_events ?? "—"} Events`}
+                      note={`${downtimeTrial?.trial_scope?.total_monitored_machines ?? "—"} machines in the recorded dataset`}
                       icon="🏭"
                       color="blue"
                     />
@@ -1052,35 +1010,35 @@ function App() {
                   <section className="panel" style={{ marginTop: "20px" }}>
                     <div className="panel-heading">
                       <div>
-                        <h3>Empirical Trial: Reactive (Run-to-Failure) vs AI Predictive Maintenance</h3>
-                        <p>Simulated operational trial across all 761 historical breakdown events in the 876,100 dataset observations</p>
+                        <h3>Illustrative Repair-Duration Scenario</h3>
+                        <p>Historical event counts are combined with assumed repair durations; this is not an operational trial.</p>
                       </div>
-                      <span className="panel-tag" style={{ background: "#dcfce7", color: "#15803d" }}>
-                        VALIDATED TRIAL RESULTS
+                      <span className="panel-tag" style={{ background: "#fef3c7", color: "#92400e" }}>
+                        NOT VALIDATED
                       </span>
                     </div>
 
                     <div className="charts-grid" style={{ marginBottom: "20px" }}>
                       <div className="panel" style={{ border: "1px solid #fee2e2", background: "#fffafb" }}>
-                        <h4 style={{ color: "#b91c1c", margin: "0 0 8px" }}>🔴 Baseline: Reactive (Run-to-Failure)</h4>
+                        <h4 style={{ color: "#b91c1c", margin: "0 0 8px" }}>Assumed reactive repair scenario</h4>
                         <p style={{ fontSize: "12px", color: "#64748b" }}>
-                          Machines operated until catastrophic failure. Unplanned repairs incur secondary damage (+50% duration), emergency technician dispatch delay (+3h), and emergency parts procurement wait (+4h).
+                          Assumes component repair time × 1.5 plus seven hours of logistics overhead. These durations are not measured from operations.
                         </p>
                         <h2 style={{ color: "#dc2626", margin: "10px 0 4px" }}>
-                          {downtimeTrial?.summary?.reactive_unplanned_downtime_hours?.toLocaleString() || "13,988.0"} Hours
+                          {downtimeTrial?.summary?.reactive_unplanned_downtime_hours?.toLocaleString() ?? "—"} Hours
                         </h2>
-                        <small style={{ color: "#7f1d1d" }}>Mean downtime per failure: 18.4 hours</small>
+                        <small style={{ color: "#7f1d1d" }}>Scenario total only</small>
                       </div>
 
                       <div className="panel" style={{ border: "1px solid #bbf7d0", background: "#f0fdf4" }}>
-                        <h4 style={{ color: "#15803d", margin: "0 0 8px" }}>🟢 AI-Driven Predictive Maintenance</h4>
+                        <h4 style={{ color: "#15803d", margin: "0 0 8px" }}>Assumed planned repair scenario</h4>
                         <p style={{ fontSize: "12px", color: "#64748b" }}>
-                          Early warning triggers controlled planned overhaul during scheduled shift change. Zero secondary damage, technicians pre-assigned with certified skills, and spare parts pre-staged in advance.
+                          Assumes component repair time × 0.9. The system does not demonstrate that alerts prevent failures or make all repairs planned.
                         </p>
                         <h2 style={{ color: "#16a34a", margin: "10px 0 4px" }}>
-                          {downtimeTrial?.summary?.predictive_planned_downtime_hours?.toLocaleString() || "5,196.6"} Hours
+                          {downtimeTrial?.summary?.predictive_planned_downtime_hours?.toLocaleString() ?? "—"} Hours
                         </h2>
-                        <small style={{ color: "#14532d" }}>Mean downtime per failure: 6.8 hours</small>
+                        <small style={{ color: "#14532d" }}>Scenario total only</small>
                       </div>
                     </div>
 
@@ -1091,17 +1049,17 @@ function App() {
                             <th>Component</th>
                             <th>Subsystem Name</th>
                             <th>Failure Events</th>
-                            <th>Reactive Downtime / Unit</th>
-                            <th>Predictive Downtime / Unit</th>
-                            <th>Hours Saved</th>
-                            <th>Financial Savings ($)</th>
+                            <th>Assumed reactive duration</th>
+                            <th>Assumed planned duration</th>
+                            <th>Scenario difference</th>
+                            <th>Scenario cost difference ($)</th>
                           </tr>
                         </thead>
                         <tbody>
                           {downtimeTrial?.breakdown_by_component?.reactive?.map((item, idx) => {
                             const pro = downtimeTrial?.breakdown_by_component?.proactive?.[idx] || {};
                             const saved = (item.total_unplanned_downtime_hours - pro.total_planned_downtime_hours).toFixed(1);
-                            const dollars = Math.round((item.total_unplanned_downtime_hours - pro.total_planned_downtime_hours) * 2500).toLocaleString();
+                            const dollars = Math.round((item.total_unplanned_downtime_hours - pro.total_planned_downtime_hours) * (downtimeTrial?.assumptions?.downtime_cost_per_hour_usd || 0)).toLocaleString();
                             return (
                               <tr key={item.component}>
                                 <td><strong>{item.component}</strong></td>
@@ -1129,28 +1087,28 @@ function App() {
                   <section className="stats-grid">
                     <StatCard
                       title="Total Historical Failures"
-                      value={historicalTrends?.total_failures || 761}
-                      note="Across all 100 factory machines in 2015"
+                      value={historicalTrends?.total_failures ?? "—"}
+                      note="Count in the historical failure dataset"
                       icon="✓"
                       color="blue"
                     />
                     <StatCard
-                      title="Historical Downtime"
-                      value={`${historicalTrends?.total_downtime_hours || 5774} hrs`}
-                      note="Unplanned repair stoppage recorded"
+                      title="Estimated Historical Downtime"
+                      value={`${historicalTrends?.total_downtime_hours ?? "—"} hrs`}
+                      note="Derived from assumed duration per failure component"
                       icon="⏱"
                       color="orange"
                     />
                     <StatCard
                       title="Average Early Warning"
-                      value={`${averageWarningHours.toFixed(1)} hrs`}
+                      value={failureMatches.length ? `${averageWarningHours.toFixed(1)} hrs` : "Not available"}
                       note="Lead time before matched failure"
                       icon="◷"
                       color="green"
                     />
                     <StatCard
                       title="Early Warning Precision"
-                      value={`${(averagePeakProbability * 100).toFixed(1)}%`}
+                      value={failureMatches.length ? `${(averagePeakProbability * 100).toFixed(1)}%` : "Not available"}
                       note="Mean peak probability in warning window"
                       icon="↗"
                       color="red"
@@ -1184,13 +1142,13 @@ function App() {
                     </div>
                   </section>
 
-                  {/* DOWNTIME PREVENTED TREND */}
+                  {/* HISTORICAL DOWNTIME TREND */}
                   <section className="charts-grid" style={{ marginTop: "20px" }}>
                     <div className="panel">
                       <div className="panel-heading">
                         <div>
-                          <h3>Monthly Downtime Hours vs Prevented Stoppage</h3>
-                          <p>Emergency breakdown downtime vs planned predictive maintenance</p>
+                          <h3>Estimated Historical Downtime</h3>
+                          <p>Calculated from failure counts and assumed component durations; no avoided downtime is inferred.</p>
                         </div>
                       </div>
                       <div className="chart">
@@ -1201,8 +1159,7 @@ function App() {
                             <YAxis axisLine={false} tickLine={false} />
                             <Tooltip />
                             <Legend />
-                            <Line type="monotone" dataKey="downtime_hours" name="Actual Downtime (hrs)" stroke="#ef4444" strokeWidth={2} dot={{ r: 3 }} />
-                            <Line type="monotone" dataKey="downtime_prevented_hours" name="Downtime Prevented (hrs)" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} />
+                            <Line type="monotone" dataKey="downtime_hours" name="Estimated Downtime (hrs)" stroke="#ef4444" strokeWidth={2} dot={{ r: 3 }} />
                           </LineChart>
                         </ResponsiveContainer>
                       </div>
@@ -1246,8 +1203,8 @@ function App() {
                             <th>Subsystem Name</th>
                             <th>Total Failures</th>
                             <th>Failure Share</th>
-                            <th>Unit Downtime (Hours)</th>
-                            <th>Total Downtime Hours</th>
+                            <th>Assumed Unit Duration</th>
+                            <th>Estimated Total Duration</th>
                             <th>Risk Severity Weight</th>
                           </tr>
                         </thead>
@@ -1278,7 +1235,7 @@ function App() {
               <p className="data-disclaimer">
                 {simulation
                   ? `Production Line Replay Snapshot &bull; ${simulation.timestamp} &bull; Model predictions derived strictly from Azure PdM telemetry.`
-                  : "Industrial Predictive Maintenance Prototype &bull; Grounded in 876,100 empirical telemetry observations."}
+                  : "Predictive-maintenance prototype &bull; Historical benchmark data only &bull; No live factory feed."}
               </p>
             </>
           )}
@@ -1294,7 +1251,17 @@ function App() {
       )}
 
       {/* MAINTENANCE DISPATCH REPORT MODAL */}
-      {showReportModal && (
+      {showReportModal && reportError && (
+        <div className="machine-modal-overlay" role="dialog" aria-modal="true">
+          <div className="machine-modal">
+            <p className="simulation-error">{reportError}</p>
+            <button type="button" className="view-button" onClick={() => setShowReportModal(false)}>
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+      {showReportModal && reportData && (
         <ReportModal
           reportData={reportData}
           onClose={() => setShowReportModal(false)}
@@ -1339,32 +1306,38 @@ function MachineTable({ data, onSelectMachine, showExplanation = false }) {
               >
                 <td><strong>#{m.rank || m.machineID}</strong></td>
                 <td>Machine {m.machineID}</td>
-                <td>{m.production_line || `Line ${Math.floor((Number(m.machineID) - 1) / 20) + 1}`}</td>
+                <td>{m.production_line || "—"}</td>
                 <td>{m.model}</td>
                 <td>
-                  <span className={`health-pill ${getHealthClass(m.health_score)}`}>
-                    {Number(m.health_score).toFixed(0)}%
-                  </span>
+                  {m.health_score != null && Number.isFinite(Number(m.health_score)) ? (
+                    <span className={`health-pill ${getHealthClass(Number(m.health_score))}`}>
+                      {Number(m.health_score).toFixed(0)}%
+                    </span>
+                  ) : "Not measured"}
                 </td>
                 <td>
-                  <strong style={{ color: m.failure_probability_24h >= 0.85 ? "#dc2626" : m.failure_probability_24h >= 0.5 ? "#ea580c" : "#16a34a" }}>
-                    {(m.failure_probability_24h * 100).toFixed(1)}%
-                  </strong>
+                  {m.failure_probability_24h != null && Number.isFinite(Number(m.failure_probability_24h)) ? (
+                    <strong style={{ color: PRIORITY_COLORS[m.priority] || "#334155" }}>
+                      {(Number(m.failure_probability_24h) * 100).toFixed(1)}%
+                    </strong>
+                  ) : "Not predicted"}
                 </td>
                 <td>
-                  <span style={{ fontWeight: m.predicted_rul_hours <= 24 ? 700 : 500, color: m.predicted_rul_hours <= 24 ? "#dc2626" : "#334155" }}>
-                    {Number(m.predicted_rul_hours).toFixed(1)} hrs
-                  </span>
+                  {m.predicted_rul_hours != null && Number.isFinite(Number(m.predicted_rul_hours)) ? (
+                    <span style={{ fontWeight: m.predicted_rul_hours <= 24 ? 700 : 500, color: m.predicted_rul_hours <= 24 ? "#dc2626" : "#334155" }}>
+                      {Number(m.predicted_rul_hours).toFixed(1)} hrs
+                    </span>
+                  ) : "Not predicted"}
                 </td>
-                <td>{Number(m.predicted_downtime_hours || 8).toFixed(1)} hrs</td>
+                <td>{m.predicted_downtime_hours != null && Number.isFinite(Number(m.predicted_downtime_hours)) ? `${Number(m.predicted_downtime_hours).toFixed(1)} hrs` : "Not estimated"}</td>
                 <td>
                   <span className={`maint-tag ${getMaintTagClass(m.maintenance_category)}`}>
-                    {m.maintenance_category || (m.priority === "CRITICAL" ? "URGENT" : m.priority === "HIGH" ? "PREVENTIVE" : "ROUTINE")}
+                    {m.maintenance_category || "—"}
                   </span>
                 </td>
                 <td>
                   <small style={{ color: "#475569" }}>
-                    {m.recommended_action || (m.priority === "CRITICAL" ? "Urgent inspection" : "Routine monitoring")}
+                    {m.recommended_action || "No current recommendation"}
                   </small>
                 </td>
                 <td>
@@ -1419,6 +1392,7 @@ function MachineDetailsModal({ machine, onClose }) {
   const p = details?.prediction;
   const sensor = details?.sensor_readings || machine.sensor_readings || {};
   const explanation = p?.explanation;
+  const modelContributions = explanation?.model_contributions || [];
 
   return (
     <div className="machine-modal-overlay" onClick={onClose}>
@@ -1445,7 +1419,7 @@ function MachineDetailsModal({ machine, onClose }) {
                   <strong style={{ color: p?.health_score >= 80 ? "#16a34a" : p?.health_score >= 50 ? "#ea580c" : "#dc2626" }}>
                     {p?.health_score}%
                   </strong>
-                  <small style={{ fontSize: "11px", color: "#64748b" }}>{p?.composite_health_index?.health_grade || "Grade A (Nominal)"}</small>
+                  <small style={{ fontSize: "11px", color: "#64748b" }}>                  {p?.composite_health_index?.health_grade ?? "Not calculated"}</small>
                 </div>
                 <div className="report-meta-item">
                   <span>24h Failure Probability</span>
@@ -1455,14 +1429,14 @@ function MachineDetailsModal({ machine, onClose }) {
                   <small style={{ fontSize: "11px", color: "#64748b" }}>Risk Severity: {p?.risk_severity_score}/100</small>
                 </div>
                 <div className="report-meta-item">
-                  <span>General Time-to-Failure (TTF)</span>
-                  <strong>{p?.general_time_to_failure?.ttf_days ? `${p.general_time_to_failure.ttf_days} Days` : `${p?.predicted_rul_hours} hrs`}</strong>
-                  <small style={{ fontSize: "11px", color: "#64748b" }}>{p?.general_time_to_failure?.confidence_interval_text || `${p?.predicted_rul_hours} hrs`}</small>
+                  <span>RUL Model Output</span>
+                  <strong>{p?.predicted_rul_hours == null ? "Not available" : `${p.predicted_rul_hours} hrs`}</strong>
+                  <small style={{ fontSize: "11px", color: "#64748b" }}>No calibrated confidence interval is available.</small>
                 </div>
                 <div className="report-meta-item">
-                  <span>Predicted Downtime Duration</span>
+                  <span>Assumption-Based Repair Duration</span>
                   <strong>{p?.downtime_breakdown?.total_downtime_hours || p?.predicted_downtime_hours} Hours</strong>
-                  <small style={{ fontSize: "11px", color: "#dc2626" }}>Est. Loss: ${p?.downtime_breakdown?.estimated_financial_loss_usd?.toLocaleString() || "20,000"}</small>
+                  <small style={{ fontSize: "11px", color: "#64748b" }}>Scenario cost estimate: ${p?.downtime_breakdown?.estimated_financial_loss_usd?.toLocaleString() ?? "Not available"}</small>
                 </div>
               </div>
 
@@ -1470,7 +1444,7 @@ function MachineDetailsModal({ machine, onClose }) {
               {p?.composite_health_index?.breakdown && (
                 <div style={{ background: "#f1f5f9", padding: "14px", borderRadius: "8px", marginBottom: "16px", border: "1px solid #cbd5e1" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-                    <strong style={{ fontSize: "13px", color: "#1e293b" }}>Composite Health Index (CHI) Mathematical Breakdown:</strong>
+                    <strong style={{ fontSize: "13px", color: "#1e293b" }}>Project-Defined Composite Health Index Breakdown:</strong>
                     <span style={{ fontSize: "12px", fontWeight: 700, color: "#475569" }}>Base: 100 - {p.composite_health_index.breakdown.total_penalties} pts = {p.health_score}%</span>
                   </div>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "8px", fontSize: "12px" }}>
@@ -1498,11 +1472,11 @@ function MachineDetailsModal({ machine, onClose }) {
               <div className="explanation-box">
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <strong style={{ color: "#1e3a8a", fontSize: "14px" }}>
-                    Model Output Root Cause & Condition Monitoring Alert:
+                    Model Prediction and Condition Indicators:
                   </strong>
-                  {p?.iso_rule && (
+                  {p?.maintenance_guidance && (
                     <span style={{ fontSize: "11px", fontWeight: 700, padding: "3px 8px", borderRadius: "4px", background: "#fee2e2", color: "#991b1b" }}>
-                      {p.iso_rule.zone}
+                      {p.maintenance_guidance.zone}
                     </span>
                   )}
                 </div>
@@ -1518,43 +1492,28 @@ function MachineDetailsModal({ machine, onClose }) {
                 )}
               </div>
 
-              {/* TOP 5 FEATURE CONTRIBUTIONS TABLE */}
-              {(explanation?.top_contributing_features || p?.top_contributing_features) && (
+              {/* MODEL FEATURE ATTRIBUTIONS */}
+              {modelContributions.length > 0 && (
                 <div style={{ marginTop: "16px" }}>
                   <h4 style={{ fontSize: "13px", margin: "0 0 8px", color: "#334155" }}>
-                    Top Specific Sensor Readings Driving the Prediction (vs Nominal Baseline):
+                    Top model feature attributions (raw log-odds; not causal effects):
                   </h4>
                   <table style={{ width: "100%", fontSize: "12px", borderCollapse: "collapse", border: "1px solid #e2e8f0" }}>
                     <thead>
                       <tr style={{ background: "#f8fafc" }}>
-                        <th style={{ padding: "6px 10px", border: "1px solid #e2e8f0", textAlign: "left" }}>Feature / Sensor Channel</th>
-                        <th style={{ padding: "6px 10px", border: "1px solid #e2e8f0", textAlign: "left" }}>Actual Machine Value</th>
-                        <th style={{ padding: "6px 10px", border: "1px solid #e2e8f0", textAlign: "left" }}>Nominal Baseline</th>
-                        <th style={{ padding: "6px 10px", border: "1px solid #e2e8f0", textAlign: "left" }}>Baseline Deviation</th>
-                        <th style={{ padding: "6px 10px", border: "1px solid #e2e8f0", textAlign: "left" }}>Risk Contribution</th>
+                        <th style={{ padding: "6px 10px", border: "1px solid #e2e8f0", textAlign: "left" }}>Feature</th>
+                        <th style={{ padding: "6px 10px", border: "1px solid #e2e8f0", textAlign: "left" }}>Imputed model input</th>
+                        <th style={{ padding: "6px 10px", border: "1px solid #e2e8f0", textAlign: "left" }}>Contribution (log-odds)</th>
+                        <th style={{ padding: "6px 10px", border: "1px solid #e2e8f0", textAlign: "left" }}>Direction</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {(explanation?.top_contributing_features || p?.top_contributing_features).map((feat, idx) => (
+                      {modelContributions.map((feat, idx) => (
                         <tr key={idx} style={{ background: idx % 2 === 0 ? "white" : "#fafafa" }}>
-                          <td style={{ padding: "6px 10px", border: "1px solid #e2e8f0" }}><strong>{feat.display_name}</strong></td>
-                          <td style={{ padding: "6px 10px", border: "1px solid #e2e8f0", color: feat.impact === "HIGH_RISK" ? "#dc2626" : "#0f172a", fontWeight: 700 }}>
-                            {feat.value}
-                          </td>
-                          <td style={{ padding: "6px 10px", border: "1px solid #e2e8f0", color: "#64748b" }}>{feat.baseline}</td>
-                          <td style={{ padding: "6px 10px", border: "1px solid #e2e8f0" }}>
-                            <span style={{ color: feat.deviation_std > 2.0 ? "#dc2626" : feat.deviation_std > 1.0 ? "#ea580c" : "#16a34a", fontWeight: 700 }}>
-                              {feat.deviation_std > 0 ? `+${feat.deviation_std} std dev` : `${feat.deviation_std} std dev`}
-                            </span>
-                          </td>
-                          <td style={{ padding: "6px 10px", border: "1px solid #e2e8f0" }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                              <div style={{ width: "60px", height: "6px", background: "#e2e8f0", borderRadius: "3px", overflow: "hidden" }}>
-                                <div style={{ width: `${Math.min(100, feat.contribution_percent * 2)}%`, height: "100%", background: feat.contribution_percent > 30 ? "#dc2626" : "#2563eb" }} />
-                              </div>
-                              <span>{feat.contribution_percent}%</span>
-                            </div>
-                          </td>
+                          <td style={{ padding: "6px 10px", border: "1px solid #e2e8f0" }}><strong>{feat.feature}</strong></td>
+                          <td style={{ padding: "6px 10px", border: "1px solid #e2e8f0" }}>{feat.value}</td>
+                          <td style={{ padding: "6px 10px", border: "1px solid #e2e8f0" }}>{feat.contribution_log_odds}</td>
+                          <td style={{ padding: "6px 10px", border: "1px solid #e2e8f0" }}>{feat.direction} model score</td>
                         </tr>
                       ))}
                     </tbody>
@@ -1563,41 +1522,41 @@ function MachineDetailsModal({ machine, onClose }) {
               )}
 
               {/* SENSOR READINGS (TEMPERATURE, VIBRATION, PRESSURE, VOLT, ROTATE) */}
-              <h3 style={{ margin: "24px 0 12px", fontSize: "15px" }}>Real-Time Machine Readings</h3>
+              <h3 style={{ margin: "24px 0 12px", fontSize: "15px" }}>Historical Snapshot Readings</h3>
               <div className="machine-detail-grid">
                 <div className="machine-detail-card">
-                  <span>Operating Temperature (Physics Derived)</span>
+                  <span>Temperature Proxy (Formula-Derived)</span>
                   <strong style={{ color: sensor.temperature > 85 ? "#dc2626" : "#0f172a" }}>
-                    {sensor.temperature ? `${sensor.temperature} °C` : "72.4 °C"}
+                    {sensor.temperature == null ? "Not recorded" : `${sensor.temperature} °C`}
                   </strong>
                 </div>
                 <div className="machine-detail-card">
                   <span>Vibration (mm/s)</span>
                   <strong style={{ color: sensor.vibration > 45 ? "#dc2626" : "#0f172a" }}>
-                    {sensor.vibration ? Number(sensor.vibration).toFixed(2) : "40.1"}
+                    {sensor.vibration == null ? "Not recorded" : Number(sensor.vibration).toFixed(2)}
                   </strong>
                 </div>
                 <div className="machine-detail-card">
                   <span>Pressure (kPa)</span>
-                  <strong>{sensor.pressure ? Number(sensor.pressure).toFixed(2) : "100.2"}</strong>
+                  <strong>{sensor.pressure == null ? "Not recorded" : Number(sensor.pressure).toFixed(2)}</strong>
                 </div>
                 <div className="machine-detail-card">
                   <span>Rotation Speed (RPM)</span>
-                  <strong>{sensor.rotate ? Number(sensor.rotate).toFixed(1) : "445.0"}</strong>
+                  <strong>                  {sensor.rotate == null ? "Not recorded" : Number(sensor.rotate).toFixed(1)}</strong>
                 </div>
                 <div className="machine-detail-card">
                   <span>Voltage (V)</span>
-                  <strong>{sensor.volt ? Number(sensor.volt).toFixed(1) : "170.2"}</strong>
+                  <strong>                  {sensor.volt == null ? "Not recorded" : Number(sensor.volt).toFixed(1)}</strong>
                 </div>
                 <div className="machine-detail-card">
                   <span>Cumulative Operating Runtime</span>
-                  <strong>{details.runtime_hours ? `${Number(details.runtime_hours).toLocaleString()} hrs` : "87,600 hrs"}</strong>
+                  <strong>{details.runtime_hours == null ? "Not available" : `${Number(details.runtime_hours).toLocaleString()} hrs`}</strong>
                 </div>
               </div>
 
               {/* MAINTENANCE RECOMMENDATION */}
               <div className="machine-recommendation" style={{ marginTop: "20px" }}>
-                <h3>Maintenance Recommendation Engine</h3>
+                <h3>Advisory Maintenance Proposal</h3>
                 <p>
                   Classification:{" "}
                   <span className={`maint-tag ${getMaintTagClass(p?.maintenance_category)}`}>
@@ -1614,12 +1573,12 @@ function MachineDetailsModal({ machine, onClose }) {
 
               {/* HISTORICAL DOWNTIME & FAILURES */}
               <div className="machine-last-alert" style={{ marginTop: "16px" }}>
-                <h3>Historical Downtime & Maintenance History</h3>
+                <h3>Historical Failure & Maintenance Records</h3>
                 <p>
-                  Recorded Historical Failures: <strong>{details.historical_failure_count || 0}</strong> &bull; Total Downtime: <strong>{details.historical_total_downtime_hours || 0} Hours</strong>
+                  Failure events: <strong>{details.historical_failure_count ?? 0}</strong> &bull; Assumption-based downtime estimate: <strong>{details.historical_total_downtime_hours ?? "Not available"} Hours</strong>
                 </p>
                 <p>
-                  Hours Since Last Scheduled Overhaul: <strong>{details.runtime_since_maintenance_hours || 0} Hours</strong>
+                  Hours Since Last Recorded Maintenance: <strong>{details.runtime_since_maintenance_hours == null ? "Not recorded" : `${details.runtime_since_maintenance_hours} Hours`}</strong>
                 </p>
               </div>
             </>
@@ -1642,9 +1601,9 @@ function ReportModal({ reportData, onClose }) {
       <div className="report-modal" onClick={(e) => e.stopPropagation()}>
         <div className="report-header">
           <div>
-            <span className="modal-eyebrow">FACTORY DISPATCH REPORT</span>
-            <h2 style={{ margin: "6px 0 2px" }}>Preventive Maintenance Dispatch Plan</h2>
-            <small style={{ color: "#64748b" }}>Generated at: {reportData.generated_at}</small>
+            <span className="modal-eyebrow">REPLAY-BASED PLAN PROPOSAL</span>
+            <h2 style={{ margin: "6px 0 2px" }}>Capacity-Limited Maintenance Proposal</h2>
+            <small style={{ color: "#64748b" }}>Historical snapshot: {reportData.generated_at}</small>
           </div>
           <div style={{ display: "flex", gap: "10px" }}>
             <button type="button" className="report-print-btn" onClick={() => window.print()}>
@@ -1656,15 +1615,15 @@ function ReportModal({ reportData, onClose }) {
 
         <div className="report-meta-grid">
           <div className="report-meta-item">
-            <span>Average Health</span>
-            <strong>{reportData.factory_overview?.average_health_score}%</strong>
+            <span>Average Project Health Index</span>
+            <strong>{reportData.factory_overview?.average_health_score == null ? "Not measured" : `${reportData.factory_overview.average_health_score}%`}</strong>
           </div>
           <div className="report-meta-item">
-            <span>Urgent Dispatches</span>
+            <span>CRITICAL Proposals</span>
             <strong style={{ color: "#dc2626" }}>{reportData.urgent_work_orders?.length || 0}</strong>
           </div>
           <div className="report-meta-item">
-            <span>Preventive Orders</span>
+            <span>HIGH/MEDIUM Proposals</span>
             <strong style={{ color: "#ea580c" }}>{reportData.preventive_work_orders?.length || 0}</strong>
           </div>
           <div className="report-meta-item">
@@ -1673,7 +1632,8 @@ function ReportModal({ reportData, onClose }) {
           </div>
         </div>
 
-        <h3 style={{ fontSize: "14px", marginTop: "20px" }}>Urgent Intervention Work Orders</h3>
+        <p>These are model-based proposals, not submitted work orders. Review feasibility, procedures, and plant constraints before acting.</p>
+        <h3 style={{ fontSize: "14px", marginTop: "20px" }}>CRITICAL Risk-Band Proposals</h3>
         <table className="report-table">
           <thead>
             <tr>
@@ -1683,12 +1643,13 @@ function ReportModal({ reportData, onClose }) {
               <th>Risk</th>
               <th>RUL (Hrs)</th>
               <th>Target Subsystem</th>
-              <th>Scheduled Time Window</th>
+              <th>Proposed Time Window</th>
+              <th>Feasibility</th>
             </tr>
           </thead>
           <tbody>
             {reportData.urgent_work_orders?.length === 0 ? (
-              <tr><td colSpan="7">No urgent work orders required at this timestamp.</td></tr>
+              <tr><td colSpan="8">No CRITICAL risk-band proposal at this timestamp.</td></tr>
             ) : (
               reportData.urgent_work_orders?.map((wo) => (
                 <tr key={wo.work_order_id}>
@@ -1699,13 +1660,14 @@ function ReportModal({ reportData, onClose }) {
                   <td>{wo.predicted_rul_hours}</td>
                   <td>{wo.target_component}</td>
                   <td>{wo.scheduled_slot}</td>
+                  <td>{wo.status}</td>
                 </tr>
               ))
             )}
           </tbody>
         </table>
 
-        <h3 style={{ fontSize: "14px", marginTop: "24px" }}>Preventive Inspection Queue (Next 24–48 Hours)</h3>
+        <h3 style={{ fontSize: "14px", marginTop: "24px" }}>HIGH/MEDIUM Inspection Queue</h3>
         <table className="report-table">
           <thead>
             <tr>
@@ -1714,17 +1676,21 @@ function ReportModal({ reportData, onClose }) {
               <th>Line</th>
               <th>RUL</th>
               <th>Target Subsystem</th>
+              <th>Proposed Slot</th>
+              <th>Feasibility</th>
               <th>Action</th>
             </tr>
           </thead>
           <tbody>
-            {reportData.preventive_work_orders?.slice(0, 8).map((wo) => (
+            {reportData.preventive_work_orders?.map((wo) => (
               <tr key={wo.work_order_id}>
                 <td>{wo.work_order_id}</td>
                 <td>Machine {wo.machineID}</td>
                 <td>{wo.production_line}</td>
                 <td>{wo.predicted_rul_hours}</td>
                 <td>{wo.target_component}</td>
+                <td>{wo.scheduled_slot}</td>
+                <td>{wo.status}</td>
                 <td>{wo.action}</td>
               </tr>
             ))}

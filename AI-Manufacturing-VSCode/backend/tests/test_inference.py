@@ -1,3 +1,4 @@
+import json
 import unittest
 from unittest.mock import Mock, patch
 
@@ -23,17 +24,23 @@ class PredictionTests(unittest.TestCase):
         feature_row["volt"] = None
         feature_row["vibration"] = np.nan
 
-        prediction = main.predict_feature_row(feature_row, 0.98)
+        prediction = main.predict_feature_row(feature_row)
 
         self.assertTrue(np.isfinite(prediction["failure_probability_24h"]))
         self.assertIn(prediction["status"], {"ALERT", "NORMAL"})
+        self.assertIsNone(prediction["sensor_readings"]["volt"])
+        self.assertIsNone(prediction["sensor_readings"]["vibration"])
+        self.assertIsNone(prediction["sensor_readings"]["temperature"])
+        self.assertTrue(
+            any("was not recorded" in item for item in prediction["explanation"]["key_drivers"])
+        )
 
     def test_unusual_sensor_values_return_finite_probability(self):
         feature_row = self.feature_row.copy()
         for sensor in ("volt", "rotate", "pressure", "vibration"):
             feature_row[sensor] = 1_000_000_000.0
 
-        prediction = main.predict_feature_row(feature_row, 0.98)
+        prediction = main.predict_feature_row(feature_row)
 
         self.assertTrue(np.isfinite(prediction["failure_probability_24h"]))
         self.assertGreaterEqual(prediction["failure_probability_24h"], 0)
@@ -119,7 +126,6 @@ class PredictionTests(unittest.TestCase):
             details = main.machine_details(
                 56,
                 as_of="2015-12-31 06:00:00",
-                threshold=0.98,
             )
 
         self.assertEqual(details["sensor_readings"]["volt"], 169.5)
@@ -164,6 +170,7 @@ class PredictionTests(unittest.TestCase):
         fake_model.predict_proba.return_value = np.array(
             [[0.01, 0.99], [0.10, 0.90], [0.80, 0.20]]
         )
+        fake_model.booster_.predict.return_value = np.zeros((3, 48))
 
         with (
             patch.object(main, "simulation_position", -1),
@@ -247,7 +254,7 @@ class PredictionTests(unittest.TestCase):
         feature_row["pressure"] = 105.0
         feature_row["vibration"] = 52.0  # high vibration
 
-        prediction = main.predict_feature_row(feature_row, threshold=0.98)
+        prediction = main.predict_feature_row(feature_row)
         self.assertIn("predicted_rul_hours", prediction)
         self.assertIn("predicted_downtime_hours", prediction)
         self.assertIn("risk_severity_score", prediction)
@@ -271,6 +278,95 @@ class PredictionTests(unittest.TestCase):
         self.assertEqual(len(trends["monthly_trends"]), 12)
         self.assertGreater(trends["total_failures"], 700)
         self.assertGreater(trends["total_downtime_hours"], 5000.0)
+        json.dumps(trends, allow_nan=False)
+
+    def test_risk_categories_use_configured_boundaries(self):
+        cases = (
+            (0.4999, "LOW"),
+            (0.50, "MEDIUM"),
+            (0.8499, "MEDIUM"),
+            (0.85, "HIGH"),
+            (0.9799, "HIGH"),
+            (0.98, "CRITICAL"),
+        )
+        for probability, expected in cases:
+            with self.subTest(probability=probability):
+                self.assertEqual(main.classify_risk(probability), expected)
+
+    def test_alert_endpoint_has_no_alerts_before_replay(self):
+        with (
+            patch.object(main, "simulation_position", -1),
+            patch.object(main, "build_simulation_snapshot") as build_snapshot,
+        ):
+            result = main.active_alerts()
+
+        build_snapshot.assert_not_called()
+        self.assertIsNone(result["timestamp"])
+        self.assertEqual(result["threshold"], 0.98)
+        self.assertEqual(result["alerts"], [])
+
+    def test_simulation_state_returns_the_existing_replay_position(self):
+        snapshot = {"timestamp": "2015-01-01T06:00:00"}
+        with (
+            patch.object(main, "simulation_position", 12),
+            patch.object(
+                main,
+                "get_simulation_timestamp_groups",
+                return_value=[None] * 13,
+            ),
+            patch.object(main, "build_simulation_snapshot", return_value=snapshot) as build_snapshot,
+        ):
+            result = main.simulation_state(machines_per_day=1)
+
+        self.assertEqual(result, {"position": 12, "snapshot": snapshot})
+        build_snapshot.assert_called_once_with(12, 1)
+
+    def test_realistic_schedule_enforces_daily_capacity_and_marks_infeasible_slots(self):
+        timestamp = pd.Timestamp("2015-01-01 06:00:00")
+        snapshot = {
+            "timestamp": timestamp.isoformat(),
+            "machines": [
+                {
+                    "machineID": machine_id,
+                    "priority": priority,
+                    "failure_probability_24h": probability,
+                    "predicted_rul_hours": rul,
+                    "predicted_component": "comp1",
+                    "predicted_component_name": "Electrical Inverter / Power Relay",
+                    "production_line": "Line 1",
+                    "model": "model1",
+                    "maintenance_category": "PREVENTIVE",
+                    "general_time_to_failure": "1 day",
+                    "recommended_action": "Inspect the machine.",
+                }
+                for machine_id, priority, probability, rul in (
+                    (1, "CRITICAL", 0.99, 100.0),
+                    (2, "HIGH", 0.90, 10.0),
+                    (3, "MEDIUM", 0.60, 5.0),
+                )
+            ],
+        }
+
+        with (
+            patch.object(main, "simulation_position", -1),
+            patch.object(main, "build_simulation_snapshot", return_value=snapshot),
+            patch.object(main, "machines_with_maintenance_at", return_value=set()),
+        ):
+            result = main.realistic_maintenance_schedule(machines_per_day=1)
+
+        self.assertTrue(result["capacity_compliant"])
+        self.assertEqual(result["machines_per_day"], 1)
+        self.assertEqual(result["planning_horizon_days"], 3)
+        self.assertEqual(result["daily_work_order_counts"], {
+            "2015-01-01": 1,
+            "2015-01-02": 1,
+            "2015-01-03": 1,
+        })
+        self.assertEqual(
+            [work_order["status"] for work_order in result["work_orders"]],
+            ["SCHEDULED", "INFEASIBLE", "INFEASIBLE"],
+        )
+        self.assertEqual(result["unscheduled_work_orders"], [])
 
     def test_production_lines_and_maintenance_report(self):
         lines = main.production_lines()
