@@ -1,0 +1,39 @@
+{
+  "evaluation_type": "Discrete Failure Event-Level Evaluation (Unseen Machines)",
+  "scope": "20 unseen machines over 12 months (7280.0 machine-days)",
+  "threshold_0_98_operational": {
+    "total_failure_events": 178,
+    "detected_events": 172,
+    "missed_events": 6,
+    "event_detection_rate_recall": 0.9662921348314607,
+    "event_precision": 0.9204545454545454,
+    "true_alarm_episodes": 162,
+    "false_alarm_episodes": 14,
+    "total_machine_days": 7280.0,
+    "false_alarms_per_machine_day": 0.0019230769230769232,
+    "median_lead_time_hours": 24.0,
+    "mean_lead_time_hours": 23.75581395348837,
+    "min_lead_time_hours": 23.0,
+    "max_lead_time_hours": 24.0,
+    "p25_lead_time_hours": 24.0,
+    "p75_lead_time_hours": 24.0
+  },
+  "threshold_0_85_high_risk": {
+    "total_failure_events": 178,
+    "detected_events": 173,
+    "missed_events": 5,
+    "event_detection_rate_recall": 0.9719101123595506,
+    "event_precision": 0.8716577540106952,
+    "true_alarm_episodes": 163,
+    "false_alarm_episodes": 24,
+    "total_machine_days": 7280.0,
+    "false_alarms_per_machine_day": 0.0032967032967032967,
+    "median_lead_time_hours": 24.0,
+    "mean_lead_time_hours": 23.797687861271676,
+    "min_lead_time_hours": 17.0,
+    "max_lead_time_hours": 24.0,
+    "p25_lead_time_hours": 24.0,
+    "p75_lead_time_hours": 24.0
+  },
+  "methodological_notes": "Discrete event evaluation counts whether each physical breakdown was preceded by an alert in the 24h window. Continuous hourly alarms within 24 hours are collapsed into a single alert episode to prevent double-counting. False alarms are measured per machine-day of active operation."
+}

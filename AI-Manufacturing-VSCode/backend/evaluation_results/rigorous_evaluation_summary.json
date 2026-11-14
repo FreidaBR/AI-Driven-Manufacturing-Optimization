@@ -1,0 +1,80 @@
+{
+  "status": "complete",
+  "dataset_name": "Simulated Industrial Telemetry (Azure Predictive Maintenance)",
+  "total_machines": 100,
+  "total_telemetry_rows": 873700,
+  "total_failure_events": 761,
+  "validation_suites": {
+    "machine_held_out": {
+      "train_machines": 80,
+      "test_machines": 20,
+      "test_rows": 174740,
+      "roc_auc": 0.99945,
+      "pr_auc": 0.98354,
+      "precision_at_98": 0.9768,
+      "recall_at_98": 0.9547,
+      "f1_at_98": 0.9656
+    },
+    "rolling_temporal_windows": [
+      {
+        "name": "Window 1 (Mid-Year Test: Jun-Jul 2015)",
+        "roc_auc": 0.99992,
+        "f1_at_98": 0.9635
+      },
+      {
+        "name": "Window 2 (Late-Summer Test: Aug-Sep 2015)",
+        "roc_auc": 0.99997,
+        "f1_at_98": 0.9837
+      },
+      {
+        "name": "Window 3 (Late-Year Test: Oct-Dec 2015)",
+        "roc_auc": 0.99986,
+        "f1_at_98": 0.9803
+      }
+    ],
+    "feature_ablation": [
+      {
+        "subset": "sensor_only",
+        "features": 29,
+        "pr_auc": 0.30089,
+        "f1_at_98": 0.0186
+      },
+      {
+        "subset": "error_only",
+        "features": 4,
+        "pr_auc": 0.52987,
+        "f1_at_98": 0.5283
+      },
+      {
+        "subset": "maint_only",
+        "features": 9,
+        "pr_auc": 0.3335,
+        "f1_at_98": 0.0409
+      },
+      {
+        "subset": "combined_all",
+        "features": 47,
+        "pr_auc": 0.9832,
+        "f1_at_98": 0.9654
+      }
+    ],
+    "event_level_evaluation": {
+      "total_failures": 178,
+      "detected": 172,
+      "missed": 6,
+      "event_detection_rate": 0.9663,
+      "event_precision": 0.9205,
+      "false_alarms_per_machine_day": 0.00192,
+      "median_lead_time_hours": 24.0
+    },
+    "rul_regression": {
+      "mae_urgent_hours": 9.05,
+      "medae_urgent_hours": 3.01,
+      "baseline_urgent_mae_hours": 155.54
+    },
+    "component_classification": {
+      "accuracy": 0.947,
+      "macro_f1": 0.9456
+    }
+  }
+}

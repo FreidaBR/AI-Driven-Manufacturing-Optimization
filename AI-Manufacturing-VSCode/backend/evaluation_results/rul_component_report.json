@@ -1,0 +1,98 @@
+{
+  "evaluation_type": "RUL & Component Classifier Evaluation (Unseen Machines 81-100)",
+  "rul_evaluation": {
+    "overall": {
+      "sample_count": 174740,
+      "model_mae_hours": 13.78,
+      "model_rmse_hours": 27.42,
+      "model_median_absolute_error_hours": 1.59,
+      "baseline_constant_mae_hours": 13.11,
+      "baseline_constant_rmse_hours": 38.34,
+      "error_percentiles_hours": {
+        "p10": 0.0,
+        "p25": 0.17,
+        "p50": 1.59,
+        "p75": 16.77,
+        "p90": 48.45
+      }
+    },
+    "urgent_window_le_24h": {
+      "sample_count": 4017,
+      "model_mae_hours": 9.05,
+      "model_rmse_hours": 24.32,
+      "model_median_absolute_error_hours": 3.01,
+      "baseline_constant_mae_hours": 155.54,
+      "baseline_constant_rmse_hours": 155.69,
+      "error_percentiles_hours": {
+        "p10": 0.51,
+        "p25": 1.35,
+        "p50": 3.01,
+        "p75": 6.33,
+        "p90": 14.9
+      }
+    }
+  },
+  "component_classifier_evaluation": {
+    "sample_count": 7905,
+    "accuracy": 0.947,
+    "macro_f1": 0.9456,
+    "classes": [
+      "comp1",
+      "comp2",
+      "comp3",
+      "comp4"
+    ],
+    "confusion_matrix": [
+      [
+        1833,
+        49,
+        5,
+        51
+      ],
+      [
+        97,
+        2424,
+        0,
+        71
+      ],
+      [
+        19,
+        21,
+        1944,
+        5
+      ],
+      [
+        11,
+        81,
+        9,
+        1285
+      ]
+    ],
+    "per_class_metrics": {
+      "comp1": {
+        "precision": 0.9352,
+        "recall": 0.9458,
+        "f1_score": 0.9405,
+        "support": 1938
+      },
+      "comp2": {
+        "precision": 0.9414,
+        "recall": 0.9352,
+        "f1_score": 0.9383,
+        "support": 2592
+      },
+      "comp3": {
+        "precision": 0.9928,
+        "recall": 0.9774,
+        "f1_score": 0.9851,
+        "support": 1989
+      },
+      "comp4": {
+        "precision": 0.9101,
+        "recall": 0.9271,
+        "f1_score": 0.9185,
+        "support": 1386
+      }
+    }
+  }
+}

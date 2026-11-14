@@ -1,0 +1,3 @@
+threshold,total_failure_events,detected_events,missed_events,event_detection_rate_recall,event_precision,true_alarm_episodes,false_alarm_episodes,total_machine_days,false_alarms_per_machine_day,median_lead_time_hours,mean_lead_time_hours,min_lead_time_hours,max_lead_time_hours,p25_lead_time_hours,p75_lead_time_hours
+0.98 (Operational Alert),178,172,6,0.9662921348314607,0.9204545454545454,162,14,7280.0,0.0019230769230769232,24.0,23.75581395348837,23.0,24.0,24.0,24.0
+0.85 (High Risk Band),178,173,5,0.9719101123595506,0.8716577540106952,163,24,7280.0,0.0032967032967032967,24.0,23.797687861271676,17.0,24.0,24.0,24.0

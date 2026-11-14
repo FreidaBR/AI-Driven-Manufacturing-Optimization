@@ -1,0 +1,5 @@
+subset_name,feature_count,description,roc_auc,average_precision_pr_auc,f1_at_50,precision_at_50,recall_at_50,f1_at_98,precision_at_98,recall_at_98,alerts_at_98
+sensor_only,29,"Vibration, rotation, pressure, voltage raw telemetry & rolling statistics (29 features)",0.96608,0.30089,0.3807,0.2421,0.8905,0.0186,0.5938,0.0095,64
+error_only,4,"Error event counts (3h, 12h, 24h) and time since last error (4 features)",0.95923,0.52987,0.3724,0.2323,0.938,0.5283,0.9015,0.3737,1665
+maint_only,9,"Maintenance recency (24h, 7d, 30d), hours since maintenance, and component history (9 features)",0.96726,0.3335,0.3785,0.2368,0.942,0.0409,0.625,0.0212,136
+combined_all,47,"Full multi-modal feature vector combining telemetry, error bursts, and lifecycle (47 features)",0.99942,0.9832,0.9537,0.9392,0.9686,0.9654,0.9763,0.9547,3928

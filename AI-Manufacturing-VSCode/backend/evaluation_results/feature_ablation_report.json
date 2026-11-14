@@ -1,0 +1,67 @@
+{
+  "evaluation_type": "Feature Ablation Analysis (Evaluated on Unseen Machines)",
+  "subsets": [
+    {
+      "subset_name": "sensor_only",
+      "feature_count": 29,
+      "description": "Vibration, rotation, pressure, voltage raw telemetry & rolling statistics (29 features)",
+      "roc_auc": 0.96608,
+      "average_precision_pr_auc": 0.30089,
+      "f1_at_50": 0.3807,
+      "precision_at_50": 0.2421,
+      "recall_at_50": 0.8905,
+      "f1_at_98": 0.0186,
+      "precision_at_98": 0.5938,
+      "recall_at_98": 0.0095,
+      "alerts_at_98": 64
+    },
+    {
+      "subset_name": "error_only",
+      "feature_count": 4,
+      "description": "Error event counts (3h, 12h, 24h) and time since last error (4 features)",
+      "roc_auc": 0.95923,
+      "average_precision_pr_auc": 0.52987,
+      "f1_at_50": 0.3724,
+      "precision_at_50": 0.2323,
+      "recall_at_50": 0.938,
+      "f1_at_98": 0.5283,
+      "precision_at_98": 0.9015,
+      "recall_at_98": 0.3737,
+      "alerts_at_98": 1665
+    },
+    {
+      "subset_name": "maint_only",
+      "feature_count": 9,
+      "description": "Maintenance recency (24h, 7d, 30d), hours since maintenance, and component history (9 features)",
+      "roc_auc": 0.96726,
+      "average_precision_pr_auc": 0.3335,
+      "f1_at_50": 0.3785,
+      "precision_at_50": 0.2368,
+      "recall_at_50": 0.942,
+      "f1_at_98": 0.0409,
+      "precision_at_98": 0.625,
+      "recall_at_98": 0.0212,
+      "alerts_at_98": 136
+    },
+    {
+      "subset_name": "combined_all",
+      "feature_count": 47,
+      "description": "Full multi-modal feature vector combining telemetry, error bursts, and lifecycle (47 features)",
+      "roc_auc": 0.99942,
+      "average_precision_pr_auc": 0.9832,
+      "f1_at_50": 0.9537,
+      "precision_at_50": 0.9392,
+      "recall_at_50": 0.9686,
+      "f1_at_98": 0.9654,
+      "precision_at_98": 0.9763,
+      "recall_at_98": 0.9547,
+      "alerts_at_98": 3928
+    }
+  ],
+  "architectural_insights": {
+    "sensor_only": "Sensor telemetry alone (ROC-AUC 0.9661, PR-AUC 0.3009) detects degradation but cannot reliably identify the exact 24-hour boundary due to noise without error log context.",
+    "error_only": "Error history features alone (ROC-AUC 0.9592, PR-AUC 0.5299) provide sharp bursts before failure, but miss silent mechanical wear that has not yet triggered an error code.",
+    "maintenance_only": "Maintenance history features (ROC-AUC 0.9673, PR-AUC 0.3335) reflect baseline Weibull-like aging curves, but lack real-time stress signals.",
+    "combined_all": "Combining sensors, errors, and maintenance lifecycle achieves PR-AUC 0.9832 and F1@0.98 of 0.9654. Sensor features provide the continuous degradation baseline while error bursts and maintenance intervals provide critical temporal resolution."
+  }
+}

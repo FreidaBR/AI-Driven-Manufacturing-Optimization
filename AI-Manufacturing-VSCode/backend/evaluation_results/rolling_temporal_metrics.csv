@@ -1,0 +1,4 @@
+window_name,train_period,test_period,train_rows,train_positives,test_rows,test_positives,roc_auc,average_precision,precision_at_98,recall_at_98,f1_at_98,precision_at_85,recall_at_85,f1_at_85,alerts_at_98
+Window 1 (Mid-Year Test: Jun-Jul 2015),2015-01-01 to 2015-05-31,2015-06-01 to 2015-07-31,361800,7578,146400,2808,0.99992,0.9962,0.9826,0.9452,0.9635,0.9383,0.9797,0.9585,2701
+Window 2 (Late-Summer Test: Aug-Sep 2015),2015-01-01 to 2015-07-31,2015-08-01 to 2015-09-30,508200,10386,146400,2748,0.99997,0.99833,0.9911,0.9763,0.9837,0.9726,0.9942,0.9833,2707
+Window 3 (Late-Year Test: Oct-Dec 2015),2015-01-01 to 2015-10-18,2015-10-19 to 2015-12-30,696600,13938,172400,3090,0.99986,0.99036,0.9775,0.9832,0.9803,0.9696,0.9906,0.98,3108

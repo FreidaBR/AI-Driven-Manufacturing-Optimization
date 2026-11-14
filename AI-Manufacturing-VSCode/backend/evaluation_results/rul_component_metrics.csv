@@ -1,0 +1,4 @@
+model,metric_1_name,metric_1_val,metric_2_name,metric_2_val,metric_3_name,metric_3_val,baseline_mae,samples
+RUL Regressor (Overall),MAE (hours),13.78,RMSE (hours),27.42,MedAE (hours),1.59,13.11,174740
+RUL Regressor (Urgent <=24h),MAE (hours),9.05,RMSE (hours),24.32,MedAE (hours),3.01,155.54,4017
+Component Classifier,Accuracy,0.947,Macro-F1,0.9456,comp3 F1,0.9851,N/A,7905
