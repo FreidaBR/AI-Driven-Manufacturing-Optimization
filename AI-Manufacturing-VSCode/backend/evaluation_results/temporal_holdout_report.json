@@ -1,0 +1,404 @@
+{
+  "evaluation_type": "reproduced chronological holdout; no model retraining",
+  "target": "failure recorded in the next 24 hours",
+  "model": "existing deployed LightGBM binary classifier",
+  "feature_count": 47,
+  "feature_order_matches_saved_schema": true,
+  "cutoff": "2015-10-19T11:00:00",
+  "embargo_start_exclusive": "2015-10-18T11:00:00",
+  "embargo_hours": 24,
+  "training_rows_not_rescored": 696500,
+  "training_positive_rows": 13935,
+  "holdout_rows": 172400,
+  "holdout_positive_rows": 3090,
+  "holdout_positive_rate": 0.017923433874709977,
+  "holdout_start": "2015-10-19T11:00:00",
+  "holdout_end": "2015-12-30T06:00:00",
+  "unique_machines_in_holdout": 100,
+  "machine_split": "The same machine IDs occur in training and holdout; this is not an unseen-machine generalization test.",
+  "threshold_metrics": [
+    {
+      "threshold": 0.5,
+      "roc_auc": 0.9998893567437911,
+      "average_precision": 0.9927597894026085,
+      "precision": 0.9368709972552608,
+      "recall": 0.9941747572815534,
+      "f1": 0.9646726330664155,
+      "accuracy": 0.9986948955916474,
+      "specificity": 0.9987773905853169,
+      "brier_score": 0.001077790912093583,
+      "log_loss": 0.005362002062844513,
+      "confusion_matrix": [
+        [
+          169103,
+          207
+        ],
+        [
+          18,
+          3072
+        ]
+      ],
+      "predicted_alerts": 3279
+    },
+    {
+      "threshold": 0.85,
+      "roc_auc": 0.9998893567437911,
+      "average_precision": 0.9927597894026085,
+      "precision": 0.9627760252365931,
+      "recall": 0.9877022653721683,
+      "f1": 0.9750798722044729,
+      "accuracy": 0.9990951276102088,
+      "specificity": 0.9993030535703739,
+      "brier_score": 0.001077790912093583,
+      "log_loss": 0.005362002062844513,
+      "confusion_matrix": [
+        [
+          169192,
+          118
+        ],
+        [
+          38,
+          3052
+        ]
+      ],
+      "predicted_alerts": 3170
+    },
+    {
+      "threshold": 0.9,
+      "roc_auc": 0.9998893567437911,
+      "average_precision": 0.9927597894026085,
+      "precision": 0.9657903072537218,
+      "recall": 0.9867313915857605,
+      "f1": 0.9761485513046262,
+      "accuracy": 0.9991357308584686,
+      "specificity": 0.9993621168271218,
+      "brier_score": 0.001077790912093583,
+      "log_loss": 0.005362002062844513,
+      "confusion_matrix": [
+        [
+          169202,
+          108
+        ],
+        [
+          41,
+          3049
+        ]
+      ],
+      "predicted_alerts": 3157
+    },
+    {
+      "threshold": 0.95,
+      "roc_auc": 0.9998893567437911,
+      "average_precision": 0.9927597894026085,
+      "precision": 0.9682136045772409,
+      "recall": 0.9857605177993527,
+      "f1": 0.9769082745349583,
+      "accuracy": 0.9991647331786543,
+      "specificity": 0.9994093674325202,
+      "brier_score": 0.001077790912093583,
+      "log_loss": 0.005362002062844513,
+      "confusion_matrix": [
+        [
+          169210,
+          100
+        ],
+        [
+          44,
+          3046
+        ]
+      ],
+      "predicted_alerts": 3146
+    },
+    {
+      "threshold": 0.97,
+      "roc_auc": 0.9998893567437911,
+      "average_precision": 0.9927597894026085,
+      "precision": 0.9702780441035475,
+      "recall": 0.9825242718446602,
+      "f1": 0.9763627592860589,
+      "accuracy": 0.9991473317865429,
+      "specificity": 0.9994507117122439,
+      "brier_score": 0.001077790912093583,
+      "log_loss": 0.005362002062844513,
+      "confusion_matrix": [
+        [
+          169217,
+          93
+        ],
+        [
+          54,
+          3036
+        ]
+      ],
+      "predicted_alerts": 3129
+    },
+    {
+      "threshold": 0.98,
+      "roc_auc": 0.9998893567437911,
+      "average_precision": 0.9927597894026085,
+      "precision": 0.9730077120822622,
+      "recall": 0.9799352750809062,
+      "f1": 0.9764592067075137,
+      "accuracy": 0.99915313225058,
+      "specificity": 0.999503868643317,
+      "brier_score": 0.001077790912093583,
+      "log_loss": 0.005362002062844513,
+      "confusion_matrix": [
+        [
+          169226,
+          84
+        ],
+        [
+          62,
+          3028
+        ]
+      ],
+      "predicted_alerts": 3112
+    },
+    {
+      "threshold": 0.99,
+      "roc_auc": 0.9998893567437911,
+      "average_precision": 0.9927597894026085,
+      "precision": 0.9783251231527094,
+      "recall": 0.9640776699029127,
+      "f1": 0.9711491442542787,
+      "accuracy": 0.9989733178654292,
+      "specificity": 0.9996101825054633,
+      "brier_score": 0.001077790912093583,
+      "log_loss": 0.005362002062844513,
+      "confusion_matrix": [
+        [
+          169244,
+          66
+        ],
+        [
+          111,
+          2979
+        ]
+      ],
+      "predicted_alerts": 3045
+    }
+  ],
+  "default_threshold_metrics": {
+    "threshold": 0.98,
+    "roc_auc": 0.9998893567437911,
+    "average_precision": 0.9927597894026085,
+    "precision": 0.9730077120822622,
+    "recall": 0.9799352750809062,
+    "f1": 0.9764592067075137,
+    "accuracy": 0.99915313225058,
+    "specificity": 0.999503868643317,
+    "brier_score": 0.001077790912093583,
+    "log_loss": 0.005362002062844513,
+    "confusion_matrix": [
+      [
+        169226,
+        84
+      ],
+      [
+        62,
+        3028
+      ]
+    ],
+    "predicted_alerts": 3112
+  },
+  "calibration": {
+    "brier_score": 0.001077790912093583,
+    "log_loss": 0.005362002062844513,
+    "expected_calibration_error_equal_count": 0.0015420731445491467,
+    "bins": [
+      {
+        "bin": 1,
+        "samples": 17240,
+        "mean_predicted_probability": 6.1123329020265156e-06,
+        "observed_failure_rate": 0.0
+      },
+      {
+        "bin": 2,
+        "samples": 17240,
+        "mean_predicted_probability": 8.884502028287163e-06,
+        "observed_failure_rate": 0.0
+      },
+      {
+        "bin": 3,
+        "samples": 17240,
+        "mean_predicted_probability": 1.0812057278615134e-05,
+        "observed_failure_rate": 0.0
+      },
+      {
+        "bin": 4,
+        "samples": 17240,
+        "mean_predicted_probability": 1.277713859816541e-05,
+        "observed_failure_rate": 0.0
+      },
+      {
+        "bin": 5,
+        "samples": 17240,
+        "mean_predicted_probability": 1.5103817319998421e-05,
+        "observed_failure_rate": 0.0
+      },
+      {
+        "bin": 6,
+        "samples": 17240,
+        "mean_predicted_probability": 1.810614675015037e-05,
+        "observed_failure_rate": 0.0
+      },
+      {
+        "bin": 7,
+        "samples": 17240,
+        "mean_predicted_probability": 2.2544625381616846e-05,
+        "observed_failure_rate": 0.0
+      },
+      {
+        "bin": 8,
+        "samples": 17240,
+        "mean_predicted_probability": 3.063623111185555e-05,
+        "observed_failure_rate": 0.0
+      },
+      {
+        "bin": 9,
+        "samples": 17240,
+        "mean_predicted_probability": 5.7432630260425604e-05,
+        "observed_failure_rate": 0.0
+      },
+      {
+        "bin": 10,
+        "samples": 17240,
+        "mean_predicted_probability": 0.1944726607109601,
+        "observed_failure_rate": 0.17923433874709976
+      }
+    ],
+    "interpretation": "Retrospective reliability analysis only; no calibration transform was fitted."
+  },
+  "threshold_comparison": "threshold_comparison.csv",
+  "temporal_subperiods": [
+    {
+      "month": "2015-10",
+      "rows": 30100,
+      "positive_rows": 500,
+      "metrics": {
+        "threshold": 0.98,
+        "roc_auc": 0.9997611486486486,
+        "average_precision": 0.979887865474875,
+        "precision": 0.9742063492063492,
+        "recall": 0.982,
+        "f1": 0.9780876494023905,
+        "accuracy": 0.9992691029900332,
+        "specificity": 0.9995608108108108,
+        "brier_score": 0.0010399846798657016,
+        "log_loss": 0.0059655229282854355,
+        "confusion_matrix": [
+          [
+            29587,
+            13
+          ],
+          [
+            9,
+            491
+          ]
+        ],
+        "predicted_alerts": 504
+      }
+    },
+    {
+      "month": "2015-11",
+      "rows": 72000,
+      "positive_rows": 1374,
+      "metrics": {
+        "threshold": 0.98,
+        "roc_auc": 0.9999050289754371,
+        "average_precision": 0.9946114310417362,
+        "precision": 0.9662598707824839,
+        "recall": 0.9796215429403202,
+        "f1": 0.9728948319479581,
+        "accuracy": 0.9989583333333333,
+        "specificity": 0.9993345226970237,
+        "brier_score": 0.001431340770826547,
+        "log_loss": 0.006519067835604152,
+        "confusion_matrix": [
+          [
+            70579,
+            47
+          ],
+          [
+            28,
+            1346
+          ]
+        ],
+        "predicted_alerts": 1393
+      }
+    },
+    {
+      "month": "2015-12",
+      "rows": 70300,
+      "positive_rows": 1216,
+      "metrics": {
+        "threshold": 0.98,
+        "roc_auc": 0.9999193868486571,
+        "average_precision": 0.9948747319851438,
+        "precision": 0.980246913580247,
+        "recall": 0.9794407894736842,
+        "f1": 0.9798436857260386,
+        "accuracy": 0.999302987197724,
+        "specificity": 0.9996525968386313,
+        "brier_score": 0.000731878789210024,
+        "log_loss": 0.0039185495210455655,
+        "confusion_matrix": [
+          [
+            69060,
+            24
+          ],
+          [
+            25,
+            1191
+          ]
+        ],
+        "predicted_alerts": 1215
+      }
+    }
+  ],
+  "per_machine_holdout_metrics": "per_machine_holdout_metrics.csv",
+  "recorded_training_report_comparison": {
+    "roc_auc": {
+      "recorded": 0.9998785526468426,
+      "reproduced": 0.9998893567437911,
+      "absolute_difference": 1.080409694853568e-05
+    },
+    "average_precision": {
+      "recorded": 0.9927500629397663,
+      "reproduced": 0.9927597894026085,
+      "absolute_difference": 9.726462842141181e-06
+    },
+    "precision_at_threshold": {
+      "recorded": 0.9761830147289251,
+      "reproduced": 0.9730077120822622,
+      "absolute_difference": 0.003175302646662881
+    },
+    "recall_at_threshold": {
+      "recorded": 0.9789440603394092,
+      "reproduced": 0.9799352750809062,
+      "absolute_difference": 0.000991214741496993
+    },
+    "f1_at_threshold": {
+      "recorded": 0.9775615879491605,
+      "reproduced": 0.9764592067075137,
+      "absolute_difference": 0.0011023812416467438
+    },
+    "brier_score": {
+      "recorded": 0.0010351586986588432,
+      "reproduced": 0.001077790912093583,
+      "absolute_difference": 4.263221343473985e-05
+    }
+  },
+  "software": {
+    "scikit_learn": "1.8.0",
+    "numpy": "2.1.3",
+    "pandas": "2.3.3"
+  },
+  "limitations": [
+    "Training performance is not independently recomputed.",
+    "Full-dataset metrics are intentionally not reported as holdout evidence.",
+    "Machine-level slices are on seen machines, not a held-out-machine test.",
+    "This is a synthetic historical benchmark, not live industrial validation."
+  ]
+}

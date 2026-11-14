@@ -4,6 +4,8 @@ An educational predictive-maintenance prototype that uses historical benchmark d
 
 > **Project status:** Prototype, not production-ready or safety-certified. The replay uses historical benchmark records; it is not connected to live factory telemetry. Model recommendations and schedule entries are advisory and require qualified human review. The downtime comparison is an assumption-based scenario, not an observed trial or verified savings.
 
+See the [technical project overview](docs/AI_Manufacturing_Optimization_Project_Overview.pdf) for the architecture, verified scope, evaluation caveats, and limitations.
+
 ---
 
 ## Table of Contents
@@ -144,7 +146,7 @@ The project attributes its cleaned records to the Microsoft Azure Predictive Mai
 - **Machine Learning**: LightGBM, scikit-learn, NumPy, Pandas, Joblib
 - **Backend API**: FastAPI, Uvicorn, Pydantic
 - **Frontend Dashboard**: React 19, Vite, Recharts, DM Sans Typography
-- **Testing**: Python unittest (13 focused backend tests); no automated browser end-to-end suite is included.
+- **Testing**: Python unittest (15 backend tests); no automated browser end-to-end suite is included.
 
 ---
 
